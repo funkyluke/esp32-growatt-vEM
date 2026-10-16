@@ -1,0 +1,15 @@
+#pragma once
+
+/* --------------------------------------------------------------------------
+ * Shelly 3EM (Gen1) configuration.
+ *
+ * This file is gitignored. Copy shelly_config.h.example to shelly_config.h
+ * and fill in your device ID.
+ * ------------------------------------------------------------------------ */
+
+/* Device ID printed on the Shelly label / shown in its web UI (uppercase). */
+#define SHELLY_DEVICE_ID    "485519D9D81A"
+
+/* Optional fallback IP if mDNS discovery fails ("" = rely on mDNS only).
+ * Find it in your router or the Shelly web UI (Settings -> Device info). */
+#define SHELLY_FALLBACK_IP  "0.0.0.0"

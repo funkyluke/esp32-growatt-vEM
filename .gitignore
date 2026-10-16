@@ -1,0 +1,16 @@
+build/
+sdkconfig
+sdkconfig.old
+*.bin
+*.elf
+*.map
+dependencies.lock
+managed_components/
+*.log
+.clangd
+
+# Local WiFi credentials (copy wifi_credentials.h.example -> wifi_credentials.h)
+main/wifi_credentials.h
+
+# Local Shelly config (copy shelly_config.h.example -> shelly_config.h)
+main/shelly_config.h
