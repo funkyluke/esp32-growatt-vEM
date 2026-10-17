@@ -13,18 +13,47 @@
 
 static const char *TAG = "shelly";
 
+/* After this many failed polls in a row the address is resolved again
+ * (the Shelly may have a new DHCP lease). */
+#define MAX_FAILS_BEFORE_RERESOLVE  5
+/* While running on the fallback IP, retry mDNS this often. */
+#define MDNS_RETRY_US  (5LL * 60 * 1000000)
+
+static SemaphoreHandle_t s_mutex;      /* guards s_snap and the diag fields */
 static shelly_snapshot_t s_snap;
-static SemaphoreHandle_t s_mutex;
-static char s_ip[16];
-static volatile bool s_reresolve;
 static int  s_diag_status;
 static char s_diag_url[96];
 
-#define RX_MAX 4096
-static char s_rx[RX_MAX];
+static char s_ip[16];                  /* poll task only */
+static bool s_ip_is_fallback;          /* poll task only */
+static int64_t s_resolved_us;          /* poll task only */
+static volatile bool s_reresolve;
 
-int shelly_diag_status(void) { return s_diag_status; }
-const char *shelly_diag_url(void) { return s_diag_url; }
+#define RX_MAX 4096
+static char s_rx[RX_MAX];              /* poll task only */
+
+typedef struct {
+    int  len;
+    bool truncated;
+} rx_ctx_t;
+
+static void lock(void)   { xSemaphoreTake(s_mutex, portMAX_DELAY); }
+static void unlock(void) { xSemaphoreGive(s_mutex); }
+
+int shelly_diag(char *url, size_t n) {
+    lock();
+    int st = s_diag_status;
+    if (url) strlcpy(url, s_diag_url, n);
+    unlock();
+    return st;
+}
+
+static void diag_set(int status, const char *url) {
+    lock();
+    s_diag_status = status;
+    strlcpy(s_diag_url, url, sizeof(s_diag_url));
+    unlock();
+}
 
 void shelly_reresolve(void) { s_reresolve = true; }
 
@@ -45,24 +74,31 @@ static bool resolve_ip(const char *device_id) {
 }
 
 static esp_err_t http_event(esp_http_client_event_t *evt) {
-    int *len = (int *)evt->user_data;
+    rx_ctx_t *rx = (rx_ctx_t *)evt->user_data;
     if (evt->event_id == HTTP_EVENT_ON_DATA) {
         int n = evt->data_len;
-        if (n > RX_MAX - 1 - *len) n = RX_MAX - 1 - *len;
-        if (n > 0) { memcpy(s_rx + *len, evt->data, n); *len += n; }
+        if (n > RX_MAX - 1 - rx->len) { n = RX_MAX - 1 - rx->len; rx->truncated = true; }
+        if (n > 0) { memcpy(s_rx + rx->len, evt->data, n); rx->len += n; }
     }
     return ESP_OK;
+}
+
+/* Reads a required number; false if it is missing (never report a made-up 0). */
+static bool get_num(const cJSON *o, const char *key, float *out) {
+    const cJSON *it = cJSON_GetObjectItem(o, key);
+    if (!cJSON_IsNumber(it)) return false;
+    *out = (float)it->valuedouble;
+    return true;
 }
 
 static bool fetch_status(shelly_snapshot_t *snap) {
     char url[64];
     snprintf(url, sizeof(url), "http://%s/status", s_ip);
-    int len = 0;
-    s_rx[0] = '\0';
+    rx_ctx_t rx = {0};
 
     esp_http_client_config_t cfg = {
         .url = url, .method = HTTP_METHOD_GET, .timeout_ms = 5000,
-        .event_handler = http_event, .user_data = &len, .keep_alive_enable = false,
+        .event_handler = http_event, .user_data = &rx, .keep_alive_enable = false,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client) return false;
@@ -72,62 +108,84 @@ static bool fetch_status(shelly_snapshot_t *snap) {
     int status = esp_http_client_get_status_code(client);
     esp_http_client_cleanup(client);
 
-    if (err != ESP_OK || status != 200 || len == 0) {
-        s_diag_status = (status > 0) ? status : (int)err;
-        strlcpy(s_diag_url, url, sizeof(s_diag_url));
-        ESP_LOGW(TAG, "GET %s -> err=0x%x status=%d len=%d", url, (unsigned)err, status, len);
+    if (err != ESP_OK || status != 200 || rx.len == 0) {
+        diag_set((status > 0) ? status : (int)err, url);
+        ESP_LOGW(TAG, "GET %s -> err=0x%x status=%d len=%d", url, (unsigned)err, status, rx.len);
         return false;
     }
-    s_rx[len] = '\0';
+    if (rx.truncated) {
+        diag_set(-2, url);
+        ESP_LOGW(TAG, "/status is larger than %d bytes, response truncated", RX_MAX - 1);
+        return false;
+    }
+    s_rx[rx.len] = '\0';
 
-    cJSON *root = cJSON_Parse(s_rx);
-    if (!root) { ESP_LOGW(TAG, "JSON parse failed"); return false; }
+    cJSON *root = cJSON_ParseWithLength(s_rx, rx.len);
+    if (!root) { diag_set(-3, url); ESP_LOGW(TAG, "JSON parse failed"); return false; }
 
     bool ok = false;
     cJSON *em = cJSON_GetObjectItem(root, "emeters");
     if (cJSON_IsArray(em) && cJSON_GetArraySize(em) >= 3) {
-        for (int i = 0; i < 3; i++) {
-            cJSON *e = cJSON_GetArrayItem(em, i);
-            cJSON *p = cJSON_GetObjectItem(e, "power");
-            cJSON *c = cJSON_GetObjectItem(e, "current");
-            cJSON *v = cJSON_GetObjectItem(e, "voltage");
-            snap->phase[i].power   = cJSON_IsNumber(p) ? (float)p->valuedouble : 0;
-            snap->phase[i].current = cJSON_IsNumber(c) ? (float)c->valuedouble : 0;
-            snap->phase[i].voltage = cJSON_IsNumber(v) ? (float)v->valuedouble : 0;
-        }
         ok = true;
+        for (int i = 0; i < 3 && ok; i++) {
+            cJSON *e = cJSON_GetArrayItem(em, i);
+            shelly_phase_t *ph = &snap->phase[i];
+            ok = get_num(e, "power", &ph->power) && get_num(e, "current", &ph->current)
+              && get_num(e, "voltage", &ph->voltage);
+            /* Energy counters are optional (Wh). */
+            float v;
+            ph->total_wh          = get_num(e, "total", &v) ? v : 0;
+            ph->total_returned_wh = get_num(e, "total_returned", &v) ? v : 0;
+        }
+        if (!ok) ESP_LOGW(TAG, "emeters[] entry without power/current/voltage");
     } else {
         ESP_LOGW(TAG, "no emeters[3] in /status (is this a 3EM Gen1?)");
     }
     cJSON_Delete(root);
+    if (!ok) diag_set(-4, url);
     return ok;
 }
 
+static void forget_address(void) {
+    s_ip[0] = '\0';
+    s_ip_is_fallback = false;
+}
+
 static void poll_task(void *arg) {
+    int fails = 0;
     while (1) {
         settings_t cfg;
         settings_copy(&cfg);
 
         if (s_reresolve) {
             s_reresolve = false;
-            s_ip[0] = '\0';
+            forget_address();
+            fails = 0;
+            lock();
+            memset(&s_snap, 0, sizeof(s_snap));
             s_diag_status = 0;
             s_diag_url[0] = '\0';
-            xSemaphoreTake(s_mutex, pdMS_TO_TICKS(100));
-            memset(&s_snap, 0, sizeof(s_snap));
-            xSemaphoreGive(s_mutex);
+            unlock();
+        }
+
+        /* On the fallback IP, keep trying mDNS now and then. */
+        if (s_ip_is_fallback && esp_timer_get_time() - s_resolved_us > MDNS_RETRY_US) {
+            if (resolve_ip(cfg.shelly_id)) s_ip_is_fallback = false;
+            s_resolved_us = esp_timer_get_time();
         }
 
         if (s_ip[0] == '\0') {
             if (!resolve_ip(cfg.shelly_id)) {
                 if (settings_ip_is_set(cfg.shelly_ip)) {
                     strlcpy(s_ip, cfg.shelly_ip, sizeof(s_ip));
+                    s_ip_is_fallback = true;
                     ESP_LOGW(TAG, "using fallback IP %s", s_ip);
                 } else {
                     vTaskDelay(pdMS_TO_TICKS(5000));
                     continue;
                 }
             }
+            s_resolved_us = esp_timer_get_time();
         }
 
         shelly_snapshot_t snap = {0};
@@ -138,18 +196,24 @@ static void poll_task(void *arg) {
         }
 
         if (ok) {
+            fails = 0;
             snap.total_power = snap.phase[0].power + snap.phase[1].power + snap.phase[2].power;
             snap.valid = true;
             snap.last_ok_us = esp_timer_get_time();
-            ESP_LOGI(TAG, "L1=%.0fW L2=%.0fW L3=%.0fW total=%.0fW",
+            ESP_LOGD(TAG, "L1=%.0fW L2=%.0fW L3=%.0fW total=%.0fW",
                      snap.phase[0].power, snap.phase[1].power, snap.phase[2].power, snap.total_power);
-            xSemaphoreTake(s_mutex, pdMS_TO_TICKS(100));
+            lock();
             s_snap = snap;
-            xSemaphoreGive(s_mutex);
+            unlock();
         } else {
-            xSemaphoreTake(s_mutex, pdMS_TO_TICKS(100));
+            lock();
             s_snap.valid = false;
-            xSemaphoreGive(s_mutex);
+            unlock();
+            if (++fails >= MAX_FAILS_BEFORE_RERESOLVE) {
+                ESP_LOGW(TAG, "%d failed polls in a row, resolving the address again", fails);
+                forget_address();
+                fails = 0;
+            }
         }
 
         vTaskDelay(pdMS_TO_TICKS(cfg.shelly_poll_s * 1000));
@@ -157,12 +221,9 @@ static void poll_task(void *arg) {
 }
 
 void shelly_get_snapshot(shelly_snapshot_t *out) {
-    if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        *out = s_snap;
-        xSemaphoreGive(s_mutex);
-    } else {
-        memset(out, 0, sizeof(*out));
-    }
+    lock();
+    *out = s_snap;
+    unlock();
 }
 
 void shelly_init(void) {

@@ -104,7 +104,13 @@ void wifi_apply(const settings_t *old_cfg, uint32_t wifi_mask) {
     ctx->wifi_mask = wifi_mask;
     s_apply_busy = true;
     settings_wifi_msg_set("Switching WiFi...");
-    xTaskCreate(apply_task, "wifi_apply", 4096, ctx, 5, NULL);
+    if (xTaskCreate(apply_task, "wifi_apply", 4096, ctx, 5, NULL) != pdPASS) {
+        /* Could not start: undo the live change so config and radio agree. */
+        settings_update_wifi(old_cfg->wifi_ssid, old_cfg->wifi_pass);
+        settings_wifi_msg_set("Could not start the WiFi switch (out of memory). Nothing changed.");
+        s_apply_busy = false;
+        free(ctx);
+    }
 }
 
 void wifi_init_sta(void) {

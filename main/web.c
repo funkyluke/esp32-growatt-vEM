@@ -127,11 +127,17 @@ static esp_err_t settings_page_handler(httpd_req_t *req) { return send_html(req,
 static esp_err_t status_handler(httpd_req_t *req) {
     settings_t cfg;
     settings_copy(&cfg);
-    char buf[128];
-    int len = snprintf(buf, sizeof(buf), "{\"ip\":\"" IPSTR "\",\"wifi\":\"%s\"}",
-                       IP2STR(wifi_ip()), cfg.wifi_ssid);
+    char ip[16];
+    snprintf(ip, sizeof(ip), IPSTR, IP2STR(wifi_ip()));
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "ip", ip);
+    cJSON_AddStringToObject(o, "wifi", cfg.wifi_ssid);   /* escaped by cJSON */
+    char *json = cJSON_PrintUnformatted(o);
+    cJSON_Delete(o);
+    if (!json) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "out of memory");
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, buf, len);
+    httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+    cJSON_free(json);
     return ESP_OK;
 }
 
@@ -148,6 +154,8 @@ static esp_err_t power_handler(httpd_req_t *req) {
     long long age_ms = (snap.last_ok_us > 0) ? (long long)((now_us - snap.last_ok_us) / 1000) : -1;
     const char *state = (age_ms < 0) ? "none" : (age_ms < fresh_ms) ? "fresh"
                       : (age_ms < aging_ms) ? "aging" : "stale";
+    char diag_url[96];
+    int diag_status = shelly_diag(diag_url, sizeof(diag_url));
 
     int len = snprintf(s_power_json, sizeof(s_power_json),
         "{\"id\":\"%s\",\"ok\":%s,\"state\":\"%s\",\"age_ms\":%lld,\"uptime_s\":%lld,"
@@ -160,7 +168,7 @@ static esp_err_t power_handler(httpd_req_t *req) {
         cfg.shelly_id,
         (strcmp(state, "fresh") == 0 || strcmp(state, "aging") == 0) ? "true" : "false",
         state, age_ms, (long long)(now_us / 1000000),
-        snap.total_power, shelly_diag_status(), shelly_diag_url(),
+        snap.total_power, diag_status, diag_url,
         snap.phase[0].power, snap.phase[0].current, snap.phase[0].voltage,
         snap.phase[1].power, snap.phase[1].current, snap.phase[1].voltage,
         snap.phase[2].power, snap.phase[2].current, snap.phase[2].voltage);
@@ -184,6 +192,12 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
 }
 
 static esp_err_t settings_post_handler(httpd_req_t *req) {
+    /* Requiring a JSON content type forces a CORS preflight, so a foreign web
+     * page in the user's browser cannot post settings (CSRF). */
+    char ctype[48] = "";
+    httpd_req_get_hdr_value_str(req, "Content-Type", ctype, sizeof(ctype));
+    if (strncmp(ctype, "application/json", 16) != 0)
+        return reply(req, "415 Unsupported Media Type", "{\"ok\":false,\"error\":\"Content-Type must be application/json\"}");
     if (req->content_len == 0 || req->content_len > 1024)
         return reply(req, "400 Bad Request", "{\"ok\":false,\"error\":\"Bad request size\"}");
     if (wifi_apply_busy())

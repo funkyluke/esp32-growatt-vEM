@@ -8,7 +8,7 @@
  * ------------------------------------------------------------------------ */
 
 /* Device ID printed on the Shelly label / shown in its web UI (uppercase). */
-#define SHELLY_DEVICE_ID    "485519D9D81A"
+#define SHELLY_DEVICE_ID    "A1B2C3D4E5F6"
 
 /* Optional fallback IP if mDNS discovery fails ("" = rely on mDNS only).
  * Find it in your router or the Shelly web UI (Settings -> Device info). */

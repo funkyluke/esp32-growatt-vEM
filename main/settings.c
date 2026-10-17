@@ -54,7 +54,7 @@ static const char *val_wifi_pass(const char *s) {
 
 static const char *val_hex_id(const char *s) {
     size_t n = strlen(s);
-    if (n < 6 || n > 12) return "Expected 6 to 12 hex digits, e.g. 485519D9D81A";
+    if (n < 6 || n > 12) return "Expected 6 to 12 hex digits, e.g. A1B2C3D4E5F6";
     for (; *s; s++) if (!isxdigit((unsigned char)*s)) return "Only hex digits (0-9, A-F) are allowed";
     return NULL;
 }
@@ -82,7 +82,7 @@ static const setting_def_t SETTINGS[] = {
       "8 to 63 characters. Leave empty to keep the current password.",
       F_STR, FLD_SECRET, APPLY_WIFI, offsetof(settings_t, wifi_pass), FSIZE(wifi_pass), 0, 63, val_wifi_pass },
     { "Shelly 3EM", "shelly_id", "Device ID",
-      "Printed on the Shelly label, e.g. 485519D9D81A. Used for mDNS (shellyem3-<ID>.local).",
+      "Printed on the Shelly label, e.g. A1B2C3D4E5F6. Used for mDNS (shellyem3-<ID>.local).",
       F_STR, FLD_UPPER, APPLY_SHELLY, offsetof(settings_t, shelly_id), FSIZE(shelly_id), 6, 12, val_hex_id },
     { "Shelly 3EM", "shelly_ip", "Fallback IP address",
       "Only used if mDNS finds nothing. Leave empty to disable.",
@@ -142,14 +142,16 @@ static void defaults(settings_t *c) {
 
 esp_err_t settings_persist(uint32_t mask) {
     if (mask == 0) return ESP_OK;
+    settings_t c;
+    settings_copy(&c);
     nvs_handle_t h;
     esp_err_t e = nvs_open(NVS_NS, NVS_READWRITE, &h);
     if (e != ESP_OK) return e;
     for (size_t i = 0; i < SETTINGS_N && e == ESP_OK; i++) {
         if (!(mask & (1u << i))) continue;
         const setting_def_t *f = &SETTINGS[i];
-        e = (f->kind == F_STR) ? nvs_set_str(h, f->key, fld_str(&s_cfg, f))
-                               : nvs_set_i32(h, f->key, fld_int(&s_cfg, f));
+        e = (f->kind == F_STR) ? nvs_set_str(h, f->key, fld_str(&c, f))
+                               : nvs_set_i32(h, f->key, fld_int(&c, f));
     }
     if (e == ESP_OK) e = nvs_commit(h);
     nvs_close(h);

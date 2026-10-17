@@ -138,8 +138,8 @@ NVS and override the compile-time defaults in `wifi_credentials.h` /
 - API: `GET /api/settings` (field list + values), `POST /api/settings` (JSON with
   any subset of the keys).
 
-To add a setting: add a member to `settings_t` in `main.c` and one row to the
-`SETTINGS[]` table (category, key, label, limits, what to re-apply). The page,
+To add a setting: add a member to `settings_t` in `settings.h` and one row to the
+`SETTINGS[]` table in `settings.c` (category, key, label, limits, what to re-apply). The page,
 validation and storage pick it up from the table.
 
 ### Freshness and uptime
