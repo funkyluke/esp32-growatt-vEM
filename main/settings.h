@@ -29,6 +29,15 @@ typedef struct {
     int32_t lim_export_w;
     int32_t lim_margin_w;
     int32_t lim_failsafe;     /* limiter_failsafe_t */
+    /* MQTT / Home Assistant */
+    int32_t mqtt_enable;
+    char    mqtt_uri[96];
+    char    mqtt_user[33];
+    char    mqtt_pass[65];
+    char    mqtt_base[33];
+    char    mqtt_disc[33];
+    int32_t mqtt_ha;
+    int32_t mqtt_period_s;
     /* System */
     char    web_pass[33];
 } settings_t;
@@ -40,6 +49,7 @@ typedef struct {
 #define APPLY_MQTT     0x08
 #define APPLY_TELEGRAM 0x10
 #define APPLY_SYSTEM   0x20
+#define APPLY_LIMIT    0x40
 
 void settings_init(void);
 

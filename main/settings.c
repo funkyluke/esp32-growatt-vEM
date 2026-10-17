@@ -58,6 +58,18 @@ static const char *val_hex_id(const char *s) {
     return NULL;
 }
 
+static const char *val_mqtt_uri(const char *s) {
+    if (!*s) return NULL;
+    if (strncmp(s, "mqtt://", 7) && strncmp(s, "mqtts://", 8) && strncmp(s, "ws://", 5) && strncmp(s, "wss://", 6))
+        return "Must start with mqtt://, mqtts://, ws:// or wss://, e.g. mqtt://192.168.1.10:1883";
+    return NULL;
+}
+
+static const char *val_topic(const char *s) {
+    for (; *s; s++) if (*s == '+' || *s == '#' || *s == ' ') return "No spaces, '+' or '#'";
+    return NULL;
+}
+
 static const char *val_ipv4(const char *s) {
     if (!*s) return NULL;
     int dots = 0;
@@ -118,14 +130,33 @@ static const setting_def_t SETTINGS[] = {
 
     BOOL("Export limit", lim_enable, "Limit export",
         "On: the reported power is shifted so the inverter (set to 0 W export) exports at most "
-        "the limit below. Off: the real grid power is reported.", 0),
+        "the limit below. Off: the real grid power is reported.", APPLY_LIMIT),
     INT("Export limit", lim_export_w, "Maximum export (W)",
-        "Power that may flow into the grid, 0 to 5000 W.", 0, 0, 5000),
+        "Power that may flow into the grid, 0 to 5000 W.", APPLY_LIMIT, 0, 5000),
     INT("Export limit", lim_margin_w, "Safety margin (W)",
-        "Regulate this much below the limit to absorb measurement delay, 0 to 500 W.", 0, 0, 500),
+        "Regulate this much below the limit to absorb measurement delay, 0 to 500 W.", APPLY_LIMIT, 0, 500),
     SELECT("Export limit", lim_failsafe, "When meter data is stale",
         "Throttle: report a large export so the inverter backs off. Stop answering: the "
-        "inverter's own meter-loss behaviour applies.", 0, 2, "Throttle|Stop answering"),
+        "inverter's own meter-loss behaviour applies.", APPLY_LIMIT, 2, "Throttle|Stop answering"),
+
+    BOOL("MQTT", mqtt_enable, "Enable MQTT",
+        "Publish the values to an MQTT broker (e.g. the Home Assistant Mosquitto add-on).", APPLY_MQTT),
+    STR("MQTT", mqtt_uri, "Broker URI",
+        "e.g. mqtt://192.168.1.10:1883 (mqtts:// verifies against public CAs).",
+        0, APPLY_MQTT, 0, 95, val_mqtt_uri),
+    STR("MQTT", mqtt_user, "User name", "Leave empty for anonymous access.", 0, APPLY_MQTT, 0, 32, NULL),
+    STR("MQTT", mqtt_pass, "Password", "Leave empty to keep the current password.",
+        FLD_SECRET, APPLY_MQTT, 0, 64, NULL),
+    STR("MQTT", mqtt_base, "Base topic", "State goes to <base>/state, commands to <base>/limit/set.",
+        0, APPLY_MQTT, 1, 32, val_topic),
+    BOOL("MQTT", mqtt_ha, "Home Assistant discovery",
+        "Create the device and its entities in Home Assistant automatically. Turning it off removes them.",
+        APPLY_MQTT),
+    STR("MQTT", mqtt_disc, "Discovery prefix", "Home Assistant default: homeassistant.",
+        0, APPLY_MQTT, 1, 32, val_topic),
+    INT("MQTT", mqtt_period_s, "Publish interval (seconds)",
+        "How often the state is published, 1 to 300. Changes from HA are confirmed at once.",
+        APPLY_MQTT, 1, 300),
 
     STR("System", web_pass, "Web password",
         "Protects the settings and firmware update (user name: admin). Empty = no password.",
@@ -188,6 +219,10 @@ static void defaults(settings_t *c) {
     c->lim_export_w = 800;
     c->lim_margin_w = 30;
     c->lim_failsafe = 0;      /* throttle */
+    strlcpy(c->mqtt_base, "growatt_vem", sizeof(c->mqtt_base));
+    strlcpy(c->mqtt_disc, "homeassistant", sizeof(c->mqtt_disc));
+    c->mqtt_ha = 1;
+    c->mqtt_period_s = 10;
 }
 
 uint32_t settings_apply_flags(uint64_t changed) {

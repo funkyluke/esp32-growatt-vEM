@@ -6,6 +6,7 @@
 #include "ota.h"
 #include "modbus.h"
 #include "history.h"
+#include "mqtt_ha.h"
 
 static const char *TAG = "app";
 
@@ -19,4 +20,5 @@ void app_main(void) {
     shelly_init();
     modbus_init();
     history_init();
+    mqtt_ha_init();
 }

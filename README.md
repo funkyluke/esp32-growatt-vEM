@@ -127,6 +127,23 @@ The web server exposes:
   (`grid`, `l1`-`l3`, `rep` = reported to the inverter, `lim`, `fl` flags;
   1 min data adds `gmin`/`gmax`). `next` is the `since` for the next call.
 
+## MQTT / Home Assistant
+
+*Settings -> MQTT*: broker URI (`mqtt://host:1883`, or `mqtts://` with a
+public CA), user, password, base topic (default `growatt_vem`).
+
+| Topic | Content |
+|-------|---------|
+| `<base>/status` | `online` / `offline` (retained, last will) |
+| `<base>/state` | JSON: `grid_power`, `l1_power`..`l3_power`, `l1_voltage`..`l3_voltage`, `reported_power`, `import_energy`, `export_energy` (kWh, Shelly counters), `limiter`, `meter_data`, `inverter_polling`, `export_limit`, `limiter_enabled`, `rssi`, `uptime` |
+| `<base>/limit/set` | command: export limit in W (0-5000), saved like a setting |
+| `<base>/limiter/set` | command: `ON` / `OFF` |
+
+With *Home Assistant discovery* on, a device "Growatt vEM" appears with all
+sensors (the energy sensors work in the Energy dashboard), a **number**
+entity for the export limit and a **switch** for the limiter. Discovery is
+re-sent when HA restarts; turning discovery off removes the entities.
+
 ## Live graph
 
 The dashboard graphs grid power, the power reported to the inverter and the
@@ -246,7 +263,7 @@ python tools\serial_capture.py COM10 60 serial.log
 ├── test/host/              # host unit tests (make -C test/host, run in CI)
 └── main/
     ├── CMakeLists.txt
-    ├── idf_component.yml   # managed components (cjson, mdns)
+    ├── idf_component.yml   # managed components (cjson, mdns, mqtt)
     ├── main.c              # startup
     ├── settings.c/.h       # table-driven settings (NVS, JSON, validation)
     ├── wifi.c/.h           # STA connection, safe WiFi switching
@@ -258,6 +275,7 @@ python tools\serial_capture.py COM10 60 serial.log
     ├── limiter.c/.h        # export limit offset + fail-safe (pure C)
     ├── vem.c/.h            # combines Shelly data, limiter, meter values
     ├── history.c/.h        # 1 s / 1 min power history for the graph
+    ├── mqtt_ha.c/.h        # MQTT state/commands, Home Assistant discovery
     ├── www/                # embedded HTML pages
     ├── wifi_credentials.h          # (gitignored) your LAN credentials
     ├── wifi_credentials.h.example  # committed template
