@@ -87,6 +87,8 @@ The web server exposes:
 - `GET /` — live 3-phase power dashboard
 - `GET /api/power` — JSON with per-phase power/current/voltage and the total
 - `GET /api/status` — JSON `{"ip": "...", "wifi": "..."}`
+- `GET /api/info` — firmware version, reset reason, heap, RSSI
+- `POST /api/ota` — firmware upload, `POST /api/reboot`
 
 ## Shelly 3EM (Gen1) power meter
 
@@ -157,6 +159,26 @@ If the ESP32 itself stops answering, the page shows a red **UNREACHABLE** badge
 and dims the values; it recovers on its own. `ok` is `true` for `fresh` and
 `aging`. `uptime_s` is the ESP32 time since boot, shown as `2m 22s` / `1d 3h`.
 
+## Firmware updates (OTA)
+
+The partition table has two 4 MB app slots (`ota_0`/`ota_1`). After **one**
+USB flash with this table (`idf.py -p COMx flash`), later updates can be
+uploaded on the settings page under *Firmware & system*
+(`build/ESP32_growatt_vEM.bin`), or with
+`curl -u admin:<pw> -H "Content-Type: application/octet-stream" --data-binary @build/ESP32_growatt_vEM.bin http://<ip>/api/ota`.
+
+A new image boots in "pending verify" state and confirms itself after 60 s.
+If it crashes or is reset before that, the bootloader rolls back to the
+previous image. NVS (settings) is at the same offset as before, so settings
+survive the switch to the OTA table.
+
+## Web password
+
+*Settings -> System -> Web password* protects the settings page, the
+settings API, reboot and OTA with HTTP Basic auth (user `admin`). The
+dashboard and `/api/power` stay public. POST endpoints require a JSON (or
+octet-stream) content type, which blocks cross-site form posts.
+
 ## Debugging helpers
 
 `tools/serial_capture.py` resets the chip and writes N seconds of console
@@ -171,13 +193,20 @@ python tools\serial_capture.py COM10 60 serial.log
 ```
 .
 ├── CMakeLists.txt          # top-level project
-├── partitions.csv          # 4 MB app partition
+├── partitions.csv          # NVS + 2 x 4 MB OTA app slots
 ├── sdkconfig.defaults      # ESP32-S3 / PSRAM / flash defaults
 ├── tools/serial_capture.py # console capture helper
 └── main/
     ├── CMakeLists.txt
     ├── idf_component.yml   # managed components (cjson, mdns)
-    ├── main.c              # RS485 + WiFi + Shelly + web server
+    ├── main.c              # startup
+    ├── settings.c/.h       # table-driven settings (NVS, JSON, validation)
+    ├── wifi.c/.h           # STA connection, safe WiFi switching
+    ├── shelly.c/.h         # Shelly 3EM polling, freshness state
+    ├── web.c/.h            # HTTP server, API, auth
+    ├── ota.c/.h            # firmware upload, rollback confirmation
+    ├── rs485.c/.h          # RS485 UART
+    ├── www/                # embedded HTML pages
     ├── wifi_credentials.h          # (gitignored) your LAN credentials
     ├── wifi_credentials.h.example  # committed template
     ├── shelly_config.h             # (gitignored) Shelly device ID / fallback IP

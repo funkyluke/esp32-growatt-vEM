@@ -19,3 +19,20 @@ CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+# OTA: boot a new image in "pending verify"; roll back if it never confirms
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# More sockets: web server + Shelly poll + MQTT + Telegram
+CONFIG_LWIP_MAX_SOCKETS=16
+# Browsers send long headers (Basic auth, cookies)
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+CONFIG_HTTPD_MAX_URI_LEN=1024
+
+# TLS for Telegram: CA bundle, buffers in PSRAM
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+CONFIG_SPIRAM_USE_MALLOC=y
+
+# Reboot if a watched task hangs
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_PANIC=y

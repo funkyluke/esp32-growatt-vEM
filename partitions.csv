@@ -1,9 +1,9 @@
-# Custom partition table: uses a larger app partition than the default,
-# since the WiFi + HTTP + cJSON + mDNS stack needs more than 1MB.
-#
-# Board has 16MB flash. We keep NVS + a 4MB app partition and leave the
-# rest for OTA / SPIFFS if needed later.
-# Name,   Type, SubType, Offset,   Size,   Flags
+# 16 MB flash: NVS, two 4 MB app slots for OTA updates with rollback.
+# The NVS offset is unchanged, so settings survive the switch from the old
+# single-app table. Changing this file needs one full USB flash.
+# Name,   Type, SubType, Offset,   Size,     Flags
 nvs,      data, nvs,     0x9000,   0x6000,
-phy_init, data, phy,     0xf000,   0x1000,
-factory,  app,  factory, 0x10000,  0x400000,
+otadata,  data, ota,     0xf000,   0x2000,
+phy_init, data, phy,     0x11000,  0x1000,
+ota_0,    app,  ota_0,   0x20000,  0x400000,
+ota_1,    app,  ota_1,   0x420000, 0x400000,

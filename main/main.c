@@ -3,6 +3,7 @@
 #include "wifi.h"
 #include "shelly.h"
 #include "web.h"
+#include "ota.h"
 #include "rs485.h"
 
 static const char *TAG = "app";
@@ -11,6 +12,7 @@ void app_main(void) {
     ESP_LOGI(TAG, "starting...");
 
     settings_init();
+    ota_init();
     rs485_init();
     wifi_init_sta();
     web_start();

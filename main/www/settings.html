@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings - Growatt vEM</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:720px;margin:2rem auto;padding:0 1rem;color:#222}
+h1{font-size:1.4rem}details{background:#f6f6f6;border-radius:10px;margin:.8rem 0;padding:.2rem 1rem}
+summary{cursor:pointer;font-weight:700;padding:.7rem 0}
+label{display:block;margin:.8rem 0;font-weight:600}
+input,select{display:block;width:100%;box-sizing:border-box;padding:.5rem;margin:.3rem 0;font-size:1rem;border:1px solid #bbb;border-radius:6px;background:#fff}
+input[type=checkbox]{display:inline-block;width:auto;margin:0 .4rem 0 0;vertical-align:middle}
+label.chk{font-weight:600}.clr{display:block;font-weight:400;font-size:.85rem;margin:.2rem 0}
+small{display:block;color:#777;font-weight:400}
+button{padding:.6rem 1.4rem;font-size:1rem;border:0;border-radius:6px;background:#1565c0;color:#fff;cursor:pointer;margin:.3rem .3rem .3rem 0}
+button.sec{background:#666}
+#msg{margin:1rem 0;padding:.6rem 1rem;border-radius:6px;display:none}
+.ok{background:#e3f4e8;display:block!important}.err{background:#fde8e8;display:block!important}
+table{border-collapse:collapse;font-size:.9rem;margin:.5rem 0}td{padding:.15rem .8rem .15rem 0}
+</style></head><body>
+<div style="float:right"><a href="/">&larr; Dashboard</a></div><h1>&#9881; Settings</h1>
+<div id="msg"></div><div id="cats">loading...</div>
+<button onclick="save()">Save</button>
+
+<details><summary>Firmware &amp; system</summary>
+<table id="info"></table>
+<label>Firmware update (.bin)<input type="file" id="fw" accept=".bin">
+<small>Upload build/ESP32_growatt_vEM.bin. The device reboots into the new image and
+rolls back automatically if it crashes within the first minute.</small></label>
+<button onclick="upload()">Upload firmware</button>
+<button class="sec" onclick="reboot()">Reboot</button>
+</details>
+
+<script>
+var F={};
+function E(t,p,x){var e=document.createElement(t);for(var k in p)e[k]=p[k];
+  (x||[]).forEach(function(c){e.appendChild(typeof c=='string'?document.createTextNode(c):c)});return e;}
+function $(id){return document.getElementById(id);}
+function msg(t,c){var m=$('msg');m.textContent=t;m.className=c||'ok';window.scrollTo(0,0);}
+function field(f){
+  var id='f_'+f.key,i;
+  if(f.type=='bool'){i=E('input',{type:'checkbox',id:id,checked:f.value});
+    return E('label',{className:'chk'},[i,f.label,E('small',{},[f.help])]);}
+  if(f.type=='select'){i=E('select',{id:id});
+    f.options.forEach(function(o,n){i.appendChild(E('option',{value:n,selected:n==f.value},[o]));});}
+  else{i=E('input',{type:f.type,id:id});
+    if(f.type=='number'){i.min=f.min;i.max=f.max;i.value=f.value;}
+    else{i.maxLength=f.maxlen;
+      if(f.secret){i.placeholder=f.is_set?'(unchanged)':'(not set)';i.autocomplete='new-password';}
+      else i.value=f.value;}}
+  var kids=[f.label,i];
+  if(f.secret&&f.is_set)kids.push(E('span',{className:'clr'},[E('input',{type:'checkbox',id:id+'_clr'}),'clear']));
+  kids.push(E('small',{},[f.help]));
+  return E('label',{},kids);
+}
+function load(){fetch('/api/settings').then(function(r){return r.json()}).then(function(d){
+  var box=$('cats');box.innerHTML='';F={};
+  d.categories.forEach(function(c,ci){var det=E('details',{open:ci==0},[E('summary',{},[c.name])]);
+    c.fields.forEach(function(f){F[f.key]=f;det.appendChild(field(f));});
+    box.appendChild(det);});
+  if(d.wifi_apply)msg(d.wifi_apply);
+}).catch(function(){msg('Device not answering','err');});
+fetch('/api/info').then(function(r){return r.json()}).then(function(d){
+  var t=$('info');t.innerHTML='';
+  for(var k in d)t.appendChild(E('tr',{},[E('td',{},[k]),E('td',{},[String(d[k])])]));});}
+function save(){var o={};for(var k in F){var f=F[k],e=$('f_'+k),c=$('f_'+k+'_clr');
+  if(f.type=='bool')o[k]=e.checked;
+  else if(f.type=='number'||f.type=='select')o[k]=Number(e.value);
+  else if(c&&c.checked)o[k]=null;
+  else o[k]=e.value;}
+  fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)})
+  .then(function(r){return r.json()}).then(function(d){
+    if(!d.ok){msg(d.error,'err');return;}
+    if(d.wifi_pending){msg('Switching WiFi... this page may drop for up to 30 s.');setTimeout(load,35000);}
+    else{msg(d.changed?'Saved.':'Nothing changed.');load();}
+  }).catch(function(){msg('Lost connection (expected if you changed WiFi).','err');});}
+function upload(){var f=$('fw').files[0];if(!f){msg('Choose a .bin file first','err');return;}
+  msg('Uploading '+Math.round(f.size/1024)+' KB...');
+  fetch('/api/ota',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:f})
+  .then(function(r){return r.text().then(function(t){if(!r.ok)throw t;return t;})})
+  .then(function(){msg('Update written, rebooting. Reload in about 15 s.');setTimeout(function(){location.reload()},15000);})
+  .catch(function(e){msg('Update failed: '+e,'err');});}
+function reboot(){fetch('/api/reboot',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+  .then(function(){msg('Rebooting. Reload in about 10 s.');setTimeout(function(){location.reload()},10000);});}
+load();
+</script></body></html>

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Growatt vEM</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:720px;margin:2rem auto;padding:0 1rem;color:#222}
+h1{font-size:1.4rem}.sub{color:#888;font-size:.85rem}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin:1rem 0}
+.phase{background:#f6f6f6;border-radius:10px;padding:1rem;text-align:center}
+.phase .v{font-size:1.6rem;font-weight:700}.u{color:#666;font-size:.75rem}
+.total{background:#eaf3fb;border-radius:10px;padding:1rem;text-align:center;margin-top:.5rem}
+.total .v{font-size:2rem;font-weight:800}.dim{color:#aaa}
+.badge{display:inline-block;padding:.1rem .6rem;border-radius:1rem;font-weight:700;font-size:.75rem;color:#fff;background:#999}
+.badge.fresh{background:#2e9e4f}.badge.aging{background:#e09a00}.badge.stale,.badge.lost{background:#c62828}
+body.stale .grid,body.stale .total{opacity:.4}
+@media (max-width:480px){.grid{grid-template-columns:1fr}}
+</style></head>
+<body>
+<div class="sub" style="float:right"><a href="/settings">&#9881; Settings</a></div>
+<h1>&#9889; Shelly 3EM <span class="dim" id="shellyId">...</span></h1>
+<div class="sub"><span class="badge" id="fresh">connecting...</span> <span id="age"></span>
+ &middot; uptime <span id="up">--</span></div>
+<div class="grid">
+<div class="phase"><div class="u">L1 power</div><div class="v" id="p0">--</div><div class="u" id="i0">--</div></div>
+<div class="phase"><div class="u">L2 power</div><div class="v" id="p1">--</div><div class="u" id="i1">--</div></div>
+<div class="phase"><div class="u">L3 power</div><div class="v" id="p2">--</div><div class="u" id="i2">--</div></div>
+</div>
+<div class="total"><div class="u">Grid power (+ import / &minus; export)</div><div class="v" id="tot">--</div></div>
+<script>
+function set(id,v){var e=document.getElementById(id);if(v!=null)e.textContent=v;}
+function fmt(s){var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
+  return (d?d+'d ':'')+(d||h?h+'h ':'')+m+'m '+(s%60)+'s';}
+function badge(c,t,age){var e=document.getElementById('fresh');e.className='badge '+c;e.textContent=t;
+  document.body.classList.toggle('stale',c=='stale'||c=='lost'||c=='none');set('age',age);}
+var LABEL={fresh:'FRESH',aging:'AGING',stale:'STALE',none:'NO DATA'};
+function poll(){fetch('/api/power').then(function(r){return r.json()}).then(function(d){
+  set('shellyId',d.id);set('up',fmt(d.uptime_s));
+  var a=d.age_ms>=0?(d.age_ms/1000).toFixed(1)+' s old':'no data yet';
+  badge(LABEL[d.state]?d.state:'none',LABEL[d.state]||'NO DATA',a);
+  for(var i=0;i<3;i++){set('p'+i,d.phases[i].power.toFixed(0)+' W');set('i'+i,d.phases[i].current.toFixed(2)+' A');}
+  set('tot',d.total.toFixed(0)+' W');
+}).catch(function(){badge('lost','UNREACHABLE','device not answering');});}
+poll();setInterval(poll,2000);
+</script></body></html>
