@@ -93,6 +93,15 @@ static const char *val_hhmm(const char *s) {
     return NULL;
 }
 
+static const char *val_bssid(const char *s) {
+    unsigned b[6];
+    char tail;
+    if (!*s) return NULL;
+    if (sscanf(s, "%2x:%2x:%2x:%2x:%2x:%2x%c", &b[0], &b[1], &b[2], &b[3], &b[4], &b[5], &tail) != 6)
+        return "Use the form aa:bb:cc:dd:ee:ff (see Diagnostics -> WiFi AP)";
+    return NULL;
+}
+
 static const char *val_ipv4(const char *s) {
     if (!*s) return NULL;
     int dots = 0;
@@ -123,6 +132,10 @@ static const setting_def_t SETTINGS[] = {
     STR("WiFi", wifi_pass, "Password",
         "8 to 63 characters. Leave empty to keep the current password.",
         FLD_SECRET, APPLY_WIFI, 0, 63, val_wifi_pass),
+    STR("WiFi", wifi_bssid, "Lock to access point (BSSID)",
+        "Optional. With several APs on one SSID the strongest is joined; enter a BSSID "
+        "(Diagnostics -> WiFi AP) to always use that one. Empty = automatic.",
+        0, APPLY_WIFI, 0, 17, val_bssid),
 
     STR("Shelly 3EM", shelly_id, "Device ID",
         "Printed on the Shelly label, e.g. A1B2C3D4E5F6. Used for mDNS (shellyem3-<ID>.local).",
@@ -247,10 +260,11 @@ void settings_wifi_msg_get(char *out, size_t n) {
 
 bool settings_ip_is_set(const char *s) { return ip_is_set(s); }
 
-void settings_update_wifi(const char *ssid, const char *pass) {
+void settings_update_wifi(const settings_t *old) {
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    strlcpy(s_cfg.wifi_ssid, ssid, sizeof(s_cfg.wifi_ssid));
-    strlcpy(s_cfg.wifi_pass, pass, sizeof(s_cfg.wifi_pass));
+    strlcpy(s_cfg.wifi_ssid, old->wifi_ssid, sizeof(s_cfg.wifi_ssid));
+    strlcpy(s_cfg.wifi_pass, old->wifi_pass, sizeof(s_cfg.wifi_pass));
+    strlcpy(s_cfg.wifi_bssid, old->wifi_bssid, sizeof(s_cfg.wifi_bssid));
     xSemaphoreGive(s_mutex);
 }
 

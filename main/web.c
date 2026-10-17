@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
+#include <time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -19,6 +20,9 @@
 #include "ota.h"
 #include "vem.h"
 #include "modbus.h"
+#include "mqtt_ha.h"
+#include "telegram.h"
+#include "clock.h"
 #include "web.h"
 
 static const char *TAG = "web";
@@ -30,6 +34,8 @@ extern const char index_html_start[]    asm("_binary_index_html_start");
 extern const char index_html_end[]      asm("_binary_index_html_end");
 extern const char settings_html_start[] asm("_binary_settings_html_start");
 extern const char settings_html_end[]   asm("_binary_settings_html_end");
+extern const char diag_html_start[]     asm("_binary_diag_html_start");
+extern const char diag_html_end[]       asm("_binary_diag_html_end");
 extern const char uplot_js_start[]      asm("_binary_uplot_min_js_start");
 extern const char uplot_js_end[]        asm("_binary_uplot_min_js_end");
 extern const char uplot_css_start[]     asm("_binary_uplot_min_css_start");
@@ -117,6 +123,10 @@ static esp_err_t uplot_css_handler(httpd_req_t *req) {
     return httpd_resp_send(req, uplot_css_start, uplot_css_end - uplot_css_start - 1);
 }
 
+static esp_err_t diag_page_handler(httpd_req_t *req) {
+    return send_page(req, diag_html_start, diag_html_end);
+}
+
 static esp_err_t settings_page_handler(httpd_req_t *req) {
     if (!web_check_auth(req)) return ESP_OK;
     return send_page(req, settings_html_start, settings_html_end);
@@ -165,7 +175,28 @@ static esp_err_t info_handler(httpd_req_t *req) {
     cJSON_AddNumberToObject(o, "free heap", esp_get_free_heap_size());
     cJSON_AddNumberToObject(o, "min free heap", esp_get_minimum_free_heap_size());
     wifi_ap_record_t ap;
-    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) cJSON_AddNumberToObject(o, "WiFi RSSI dBm", ap.rssi);
+    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+        cJSON_AddNumberToObject(o, "WiFi RSSI dBm", ap.rssi);
+        char bss[40];
+        snprintf(bss, sizeof(bss), "%02x:%02x:%02x:%02x:%02x:%02x (channel %d)", ap.bssid[0], ap.bssid[1],
+                 ap.bssid[2], ap.bssid[3], ap.bssid[4], ap.bssid[5], ap.primary);
+        cJSON_AddStringToObject(o, "WiFi AP", bss);
+    }
+    char ip[16];
+    snprintf(ip, sizeof(ip), IPSTR, IP2STR(wifi_ip()));
+    cJSON_AddStringToObject(o, "IP", ip);
+    cJSON_AddStringToObject(o, "hostname", WIFI_HOSTNAME ".local");
+    cJSON_AddStringToObject(o, "fallback AP", wifi_ap_active() ? "ON (192.168.4.1)" : "off");
+    time_t now = time(NULL);
+    char tbuf[32] = "not synced";
+    if (clock_valid()) { struct tm tm; localtime_r(&now, &tm); strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", &tm); }
+    cJSON_AddStringToObject(o, "time", tbuf);
+    settings_t cfg;
+    settings_copy(&cfg);
+    cJSON_AddStringToObject(o, "MQTT", !cfg.mqtt_enable ? "disabled" : mqtt_ha_connected() ? "connected" : "not connected");
+    char tg[96];
+    telegram_status(tg, sizeof(tg));
+    cJSON_AddStringToObject(o, "Telegram", telegram_enabled() ? tg : "disabled");
     return web_send_json(req, o);
 }
 
@@ -321,6 +352,7 @@ void web_start(void) {
     static const httpd_uri_t uris[] = {
         { .uri = "/",             .method = HTTP_GET,  .handler = index_handler },
         { .uri = "/settings",     .method = HTTP_GET,  .handler = settings_page_handler },
+        { .uri = "/diag",         .method = HTTP_GET,  .handler = diag_page_handler },
         { .uri = "/uplot-1.6.31.min.js",  .method = HTTP_GET, .handler = uplot_js_handler },
         { .uri = "/uplot-1.6.31.min.css", .method = HTTP_GET, .handler = uplot_css_handler },
         { .uri = "/api/status",   .method = HTTP_GET,  .handler = status_handler },

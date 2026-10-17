@@ -2,10 +2,21 @@
 
 Virtual energy meter for a **Growatt MIC** inverter on the
 [Waveshare ESP32-S3-RS485-CAN](https://www.waveshare.com/esp32-s3-rs485-can.htm)
-board. It reads a Shelly 3EM over WiFi and answers the inverter's meter
-queries on RS485 as an Eastron SDM120 (or Chint DDSU666), shifting the
-reported power so that the inverter exports at most a configurable limit
-(default 800 W) into the grid.
+board. It reads a **Shelly 3EM (Gen1)** over WiFi and answers the inverter's
+meter queries on RS485 as an **Eastron SDM120** (or Chint DDSU666), shifting
+the reported power so that the inverter exports **at most a configurable
+limit (default 800 W)** into the grid.
+
+Also: live dashboard with history graph, MQTT with Home Assistant discovery,
+Telegram alerts and a daily report, OTA updates with rollback.
+
+- [How the export limit works](#how-the-export-limit-works)
+- [Setup](#setup): hardware, build and flash, first start
+- [Web interface and API](#web-interface-and-api)
+- [MQTT / Home Assistant](#mqtt--home-assistant)
+- [Telegram](#telegram)
+- [Reliability](#reliability)
+- [Development](#development)
 
 ## How the export limit works
 
@@ -16,55 +27,60 @@ inverter export limit = 0 W                    (keeps reported >= 0)
 => grid >= -(limit - margin)                   (at most `limit` W exported)
 ```
 
-- Set the inverter's own export limitation to **on, 0 W / 0 %**, meter type
-  matching *Meter emulation -> Emulated meter*. All tuning then happens on
-  the ESP (*Export limit* settings, live, no reboot).
+- Set the inverter's own export limitation to **on, 0 W / 0 %**, with the
+  meter type matching *Meter emulation -> Emulated meter*. All tuning then
+  happens on the ESP (*Export limit* settings or the Home Assistant number
+  entity), live, no reboot.
 - **Fail-safe:** the inverter only gets real values while the Shelly data is
   *fresh* (younger than max(5 s, 2.5 polls)). Otherwise it is told about a
   large export (5 kW) so it throttles, or, with *Stop answering*, gets no
-  reply and its own meter-loss behaviour applies. Use a poll interval of 1-2 s.
-- The three phases are summed into one virtual single-phase meter, so it
-  does not matter which phase the MIC feeds.
-- Not verified on a real MIC yet: which registers it reads and the sign
-  convention. Use *Mode: Listen only* first and check `GET /api/modbus`
-  (every frame is logged, nothing is transmitted). *Invert power sign*
-  exists in case the inverter reacts the wrong way round.
+  reply and its own meter-loss behaviour applies. Use a Shelly poll interval
+  of 1-2 s.
+- The three phases are summed into one virtual single-phase meter, so it does
+  not matter which phase the MIC feeds.
+- *Limit export: off* reports the real grid power (the inverter's own limit
+  then applies).
 
-### Wiring
+> **Not verified on a real MIC yet:** which registers it reads and the sign
+> convention it expects. For the first connection use *Mode: Listen only*
+> and watch `/diag` (every frame is logged, nothing is transmitted). Then
+> switch to *Emulate meter* and check that the export settles below the
+> limit. *Invert power sign* exists in case the inverter reacts the wrong way
+> round; *Chint DDSU666* in case the SDM120 is not accepted.
 
-ESP32 board RS485 **A/B** to the inverter's meter RS485 **A/B** (see the
-MIC manual, "export limitation / meter"). Bus settings: address 1, 9600
-baud, 8N1 (adjustable). Enable the board's 120 ohm termination jumper; the
-ESP is at the end of the bus.
+## Setup
 
-## Hardware pin map
+### Hardware
 
-| Function      | GPIO | Notes                          |
-|---------------|------|--------------------------------|
-| RS485 TX (UART) | 17 | UART TXD                       |
-| RS485 RX (UART) | 18 | UART RXD                       |
-| RS485 EN (DE/RE) | 21 | Driven by the UART as its RTS pin (half-duplex mode) |
+| Function         | GPIO | Notes |
+|------------------|------|-------|
+| RS485 TX (UART1) | 17   | |
+| RS485 RX (UART1) | 18   | |
+| RS485 EN (DE/RE) | 21   | driven by the UART as its RTS pin (half-duplex mode) |
 
-The RS485 interface is electrically isolated on-board. The 120 Ω termination
-resistor is **not** populated by default (enable via the on-board jumper when
-it is the bus end node). The board's CAN interface (GPIO15 TX / GPIO16 RX) is
-not used by this firmware.
+- Board RS485 **A/B** to the inverter's meter RS485 **A/B** (see the MIC
+  manual, "export limitation / meter"). Bus: address 1, 9600 baud, 8N1
+  (adjustable).
+- The RS485 port is isolated on the board. Its 120 ohm termination is **not**
+  fitted by default; enable the jumper, the ESP is at the end of the bus.
+- The CAN interface (GPIO15/16) is not used.
+- Do **not** power the board from the screw terminal and USB at the same time.
 
-## Prerequisites (Windows)
+### Build and flash (Windows, ESP-IDF v6.1)
 
-1. **ESP-IDF v6.1** installed via the Espressif installer / VS Code ESP-IDF
-   extension. Here it lives in `D:\ESP\.espressif\v6.1\esp-idf` (see
-   `.vscode/settings.json`, `idf.currentSetup`).
-2. USB-C cable to the board's native USB port (enumerates as a COM port; the
-   chip's USB-Serial/JTAG is used for flashing and the console).
-3. Do **not** power the board from the screw terminal and USB at the same time.
+Copy the two local config templates (both gitignored) and fill them in. They
+are only factory defaults: everything can be changed later on the settings
+page.
 
-## Build and flash
+```sh
+cp main/wifi_credentials.h.example main/wifi_credentials.h   # WIFI_SSID / WIFI_PASSWORD
+cp main/shelly_config.h.example main/shelly_config.h         # SHELLY_DEVICE_ID
+```
 
-Open the **ESP-IDF PowerShell** (or load the environment manually) and run:
+In the **ESP-IDF PowerShell** (or load the environment manually):
 
 ```powershell
-# only needed if PowerShell blocks scripts (affects this session only):
+# only if PowerShell blocks scripts (this session only):
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
 $env:IDF_TOOLS_PATH = 'D:\ESP\.espressif'
@@ -73,65 +89,94 @@ $env:IDF_TOOLS_PATH = 'D:\ESP\.espressif'
 cd D:\git\ESP32_growatt_vEM
 idf.py set-target esp32s3     # first time only (regenerates sdkconfig)
 idf.py build
-idf.py -p COM10 flash monitor # use your COM port; exit monitor with Ctrl+]
+idf.py -p COM10 flash monitor # your COM port; exit the monitor with Ctrl+]
 ```
 
-If flashing fails or the port keeps disappearing, hold **BOOT**, tap **RESET**,
-then release **BOOT** to enter download mode.
+If flashing fails or the port keeps disappearing, hold **BOOT**, tap
+**RESET**, release **BOOT** (download mode).
 
-### IDF 6.1 notes (why the code looks the way it does)
+After the first USB flash, updates go over WiFi (see [OTA](#firmware-updates-ota)).
 
-- Components must be listed explicitly in `main/CMakeLists.txt`
-  (`esp_driver_uart`, ...). The old catch-all `driver` include path is not
-  enough.
-- `uart_set_rs485_*` helpers no longer exist. RS485 direction control is the
-  UART's RTS pin: `uart_set_pin(..., rts = GPIO21, ...)` plus
-  `UART_MODE_RS485_HALF_DUPLEX`.
-- If the Python/IDF output looks garbled or empty when redirected, set
-  `$env:PYTHONUTF8 = '1'` first.
-- After changing Python/IDF versions, delete `build/` and `sdkconfig` and run
-  `idf.py set-target esp32s3` again.
+### First start
 
-## WiFi configuration
+- The device joins the WiFi (2.4 GHz only) and is reachable as
+  **http://growatt-vem.local/** (mDNS) or by its IP (`got IP` in the log).
+- If it gets no IP for 2 minutes it opens a **fallback access point**
+  `GrowattVEM-XXXX` (password `growattvem`) with the web UI at
+  **http://192.168.4.1/**, while it keeps retrying the configured network.
+  The AP closes 1 minute after the network is back.
+- WiFi disconnect reasons in the log: `201` = SSID not found (name, 5 GHz,
+  range), `15` / `202` / `204` = authentication failed (password).
+- Several APs on one SSID: the strongest is joined. `/diag` shows the current
+  AP (BSSID, channel, RSSI); *WiFi -> Lock to access point* pins one if the
+  automatic choice is a bad one (e.g. a repeater with a weak uplink).
 
-WiFi credentials are kept in `main/wifi_credentials.h`, which is **gitignored**.
-To set them up:
+## Web interface and API
 
-```sh
-cp main/wifi_credentials.h.example main/wifi_credentials.h
-# then edit main/wifi_credentials.h and fill in WIFI_SSID / WIFI_PASSWORD
-```
+| Page | |
+|------|--|
+| `/` | dashboard: L1-L3, grid power, energy counters, power reported to the inverter, limiter state, inverter polling, **live graph** |
+| `/settings` | all settings, Telegram test, firmware upload, reboot |
+| `/diag` | firmware, reset reason, memory, WiFi, time, MQTT/Telegram status, Modbus counters and the last 24 frames |
 
-The device joins your LAN in STA mode and retries forever if the AP goes away.
-On boot it prints the assigned IP (look for `got IP` in the monitor), then
-browse to `http://<ip>`.
+### Settings
 
-**Requirements:** the ESP32 only supports **2.4 GHz** WiFi (no 5 GHz), and the
-SSID/password must match exactly (case-sensitive).
+Settings are stored in NVS; the header files above are only used on the very
+first boot. Categories: WiFi, Shelly 3EM, Meter emulation, Export limit,
+MQTT, Telegram, System.
 
-Troubleshooting from the monitor log (`WiFi disconnected (reason N)`):
+- Secrets (passwords, bot token) are never sent back; leave empty to keep,
+  tick *clear* to remove.
+- Changing WiFi switches network; the new credentials are saved only once the
+  device gets an IP with them, otherwise the old ones return after 30 s.
+- Changing the Shelly ID/IP re-discovers the meter immediately.
+- *System -> Web password* protects `/settings`, the settings API, reboot,
+  OTA and the Telegram endpoints with HTTP Basic auth (user `admin`). The
+  dashboard, `/diag` and the read-only APIs stay open.
 
-| Reason | Meaning |
-|--------|---------|
-| 201 | `NO_AP_FOUND`: SSID not visible. Wrong name, 5 GHz only, hidden SSID, or out of range |
-| 15, 202, 204 | Handshake / authentication failure. Usually a wrong password |
+To add a setting: a member in `settings_t` (`settings.h`) and one row in the
+`SETTINGS[]` table (`settings.c`); page, validation and storage follow from
+the table.
 
-The web server exposes:
+### Freshness
 
-- `GET /` — live 3-phase power dashboard
-- `GET /api/power` — JSON with per-phase power/current/voltage and the total
-- `GET /api/status` — JSON `{"ip": "...", "wifi": "..."}`
-- `GET /api/info` — firmware version, reset reason, heap, RSSI
-- `GET /api/modbus` — Modbus counters and the last 24 frames (hex, decoded)
-- `GET /api/telegram` — status of the last send, `POST /api/telegram/test`
-- `GET /api/history?res=s|m&since=<seq>` — power history as columns
-  (`grid`, `l1`-`l3`, `rep` = reported to the inverter, `lim`, `fl` flags;
-  1 min data adds `gmin`/`gmax`). `next` is the `since` for the next call.
+| `state` | Age of the last good Shelly poll | Dashboard | Inverter gets |
+|---------|----------------------------------|-----------|---------------|
+| `fresh` | < max(5 s, 2.5 polls)  | green **FRESH** | real values |
+| `aging` | < max(15 s, 7.5 polls) | amber **AGING** | fail-safe |
+| `stale` | older | red **STALE**, dimmed | fail-safe |
+| `none`  | no poll succeeded yet | grey **NO DATA** | fail-safe |
+
+### Live graph
+
+Grid power, power reported to the inverter and the export limit (L1-L3 via
+the legend): 1 s resolution for the last hour (15 min / 1 h), 1 min averages
+for 7 days (6 h / 24 h / 7 d). Periods without fresh data are shaded. The
+history lives in PSRAM (about 230 KB) and starts empty after a restart. The
+chart is [uPlot](https://github.com/leeoniya/uPlot) 1.6.31 (MIT,
+`main/www/vendor/`), embedded so it works without internet.
+
+### API
+
+| Endpoint | |
+|----------|--|
+| `GET /api/power` | Shelly values, freshness, energy counters, `limiter` (state, limit, offset, reported power), `inverter` (last poll) |
+| `GET /api/history?res=s\|m&since=<seq>` | history as columns (`grid`, `l1`-`l3`, `rep`, `lim`, `fl`; 1 min data adds `gmin`/`gmax`); pass `next` as `since` for increments |
+| `GET /api/info` | firmware, app slot, reset reason, memory, WiFi, time, MQTT/Telegram status |
+| `GET /api/modbus` | Modbus counters and the last 24 frames |
+| `GET /api/status` | IP and SSID |
+| `GET /api/settings`, `POST /api/settings` | field list with values; JSON with any subset of the keys (`null` clears a secret) |
+| `GET /api/telegram`, `POST /api/telegram/test` | last send result; queue a test message |
+| `POST /api/ota`, `POST /api/reboot` | firmware upload (`application/octet-stream`), restart |
+
+POST endpoints require a JSON (or octet-stream) content type, which blocks
+cross-site form posts.
 
 ## MQTT / Home Assistant
 
 *Settings -> MQTT*: broker URI (`mqtt://host:1883`, or `mqtts://` with a
-public CA), user, password, base topic (default `growatt_vem`).
+public CA), user, password, base topic (default `growatt_vem`), publish
+interval (default 10 s).
 
 | Topic | Content |
 |-------|---------|
@@ -144,6 +189,7 @@ With *Home Assistant discovery* on, a device "Growatt vEM" appears with all
 sensors (the energy sensors work in the Energy dashboard), a **number**
 entity for the export limit and a **switch** for the limiter. Discovery is
 re-sent when HA restarts; turning discovery off removes the entities.
+Commands are confirmed in the state within a second.
 
 ## Telegram
 
@@ -151,8 +197,9 @@ re-sent when HA restarts; turning discovery off removes the entities.
 2. Send your bot any message (bots cannot start a chat), then find your chat
    ID, e.g. with @userinfobot.
 3. *Settings -> Telegram*: enable, token, chat ID, save, *Send test message*.
-   The status line shows the result of the last send (e.g. `HTTP 401` for a
-   wrong token, `HTTP 400: chat not found` for a wrong chat ID).
+   The status line shows the result of the last send (`HTTP 401` = wrong
+   token, `HTTP 400: chat not found` = wrong chat ID or no message sent to
+   the bot yet).
 
 Alerts (each with a recovery message; the delay is a setting, default 5 min):
 
@@ -162,156 +209,118 @@ Alerts (each with a recovery message; the delay is a setting, default 5 min):
 | Export above the limit | export > limit + 50 W for 60 s while limiting | on |
 | Unexpected restart | after a crash, watchdog reset or brownout | on |
 | WiFi outage | sent after reconnecting, if longer than the delay | on |
-| Inverter not polling | only inside a daytime window (default 10-16 h), since the inverter switches off without PV | **off** |
+| Inverter not polling | only inside a daytime window (default 10-16 h): the inverter switches off without PV | **off** |
 
 The **daily report** (default 21:30 local time) covers the 24 h since the
 previous one: grid import/export in kWh (difference of the Shelly energy
-counters; the baseline is kept in NVS so restarts do not break it), peak
-import/export, time at the export limit, time without fresh meter data, when
-the inverter was active, number of alerts, uptime and WiFi signal. Peaks and
-times start over after a restart (the report says so).
+counters, baseline kept in NVS), peak import/export, time at the export
+limit, time without fresh meter data, when the inverter was active, number
+of alerts, uptime and WiFi signal. Peaks and times start over after a restart
+(the report says so).
 
-Time comes from SNTP (*System -> NTP server*), the time zone is a POSIX TZ
+Time comes from SNTP (*System -> NTP server*); the time zone is a POSIX TZ
 string (*System -> Time zone*, default Central Europe).
 
-## Live graph
+## Reliability
 
-The dashboard graphs grid power, the power reported to the inverter and the
-export limit: 1 s resolution for the last hour (15 min / 1 h), 1 min
-averages for 7 days (6 h / 24 h / 7 d). Periods without fresh meter data are
-shaded. The history lives in PSRAM (about 230 KB) and starts empty after a
-reboot. The chart uses [uPlot](https://github.com/leeoniya/uPlot) 1.6.31
-(MIT, `main/www/vendor/`), embedded in the firmware so it works offline.
-- `POST /api/ota` — firmware upload, `POST /api/reboot`
+### Firmware updates (OTA)
 
-## Shelly 3EM (Gen1) power meter
-
-The firmware polls a Shelly **3EM Gen1** (not the Pro) and shows L1/L2/L3 power.
+Two 4 MB app slots (`ota_0`/`ota_1`). Upload `build/ESP32_growatt_vEM.bin`
+on the settings page (*Firmware & system*) or with
 
 ```sh
-cp main/shelly_config.h.example main/shelly_config.h
-# set SHELLY_DEVICE_ID (and optionally SHELLY_FALLBACK_IP)
+curl -u admin:<pw> -H "Content-Type: application/octet-stream" \
+     --data-binary @build/ESP32_growatt_vEM.bin http://growatt-vem.local/api/ota
 ```
 
-- **Discovery:** mDNS, hostname `shellyem3-<DEVICE_ID>` (the library appends
-  `.local` itself, so do not include it). `SHELLY_FALLBACK_IP` is used if mDNS
-  fails. Resolution can take 20-30 s after boot.
-- **Polling:** one `GET /status` every 2 s (the `emeters[0..2]` array holds the
-  three phases). One request instead of three `/emeter/N` calls, because the
-  Shelly has very few sockets.
-- **Components:** `espressif/cjson` and `espressif/mdns` are declared in
-  `main/idf_component.yml`. `idf.py add-dependency` only edits the manifest;
-  run `idf.py reconfigure` (or let the next build re-run CMake) to download
-  them into `managed_components/`.
-- **Partition table:** `partitions.csv` gives the app 4 MB; the default 1 MB
-  partition was 97 % full once WiFi + HTTP + mDNS were linked in.
+A new image boots as "pending verify" and confirms itself after 60 s. If it
+crashes or is reset before that, the bootloader rolls back to the previous
+image (`/diag` shows the slot and whether it is confirmed).
 
-### Reliability notes (found the hard way)
+### Watchdogs and self-healing
 
-- A pure TCP-connect timeout to the Shelly while the PC reaches it in 5 ms was
-  **not** AP isolation. Contributing causes were the WiFi event handler
-  sleeping inside the system event loop (stalling netif/mDNS events), modem
-  power-save, and three separate HTTP connections per poll. All three are fixed
-  (`esp_wifi_set_ps(WIFI_PS_NONE)`, no blocking in the handler, one request).
-- This network has several APs on one SSID. The firmware scans all channels
-  and joins the strongest instead of the first (`WIFI_ALL_CHANNEL_SCAN` +
-  `WIFI_CONNECT_AP_BY_SIGNAL`); the weak AP caused auth/assoc failures at boot.
-- One missed poll does not flip the dashboard to offline: data freshness is
-  computed on the device from the age of the last good poll.
+- Task watchdog (30 s, panics and restarts) on the Modbus and Shelly tasks.
+- No Shelly data for 30 min while WiFi is up: restart (only if data was
+  received since boot, so an offline Shelly cannot cause a restart loop).
+- After 5 failed polls the Shelly address is resolved again (new DHCP
+  lease); while on the fallback IP, mDNS is retried every 5 min.
+- The fallback AP (see [First start](#first-start)) keeps the device
+  reachable without WiFi.
 
-### Settings page
+### Lessons learned
 
-`http://<ip>/settings` edits the WiFi and Shelly settings. They are stored in
-NVS and override the compile-time defaults in `wifi_credentials.h` /
-`shelly_config.h`, which are only used on the first boot.
+- A TCP-connect timeout to the Shelly while the PC reached it in 5 ms was
+  **not** AP isolation: the WiFi event handler slept inside the system event
+  loop (stalling netif/mDNS), modem power-save was on, and three HTTP
+  connections per poll exhausted the Shelly's sockets. Fixed by never
+  blocking in the handler, `WIFI_PS_NONE`, and one `GET /status` per poll.
+- Several APs share the SSID: the firmware scans all channels and joins the
+  strongest (`WIFI_ALL_CHANNEL_SCAN` + `WIFI_CONNECT_AP_BY_SIGNAL`).
+- One missed poll does not flip anything to offline: freshness is the age of
+  the last good poll.
+- esp_http_client returns `ESP_ERR_NOT_SUPPORTED` for an HTTP 401; check the
+  status code before the error code.
 
-- Settings are grouped into collapsible categories (WiFi, Shelly 3EM).
-- The WiFi password is never sent back to the browser; leave it empty to keep it.
-- Changing the Shelly settings re-discovers the meter immediately.
-- Changing WiFi switches network. The new credentials are saved only after the
-  device gets an IP with them; if that fails within 30 s the old ones are
-  restored, so a typo cannot lock you out.
-- API: `GET /api/settings` (field list + values), `POST /api/settings` (JSON with
-  any subset of the keys).
+## Development
 
-To add a setting: add a member to `settings_t` in `settings.h` and one row to the
-`SETTINGS[]` table in `settings.c` (category, key, label, limits, what to re-apply). The page,
-validation and storage pick it up from the table.
+### IDF 6.1 notes
 
-### Freshness and uptime
+- Components must be listed explicitly in `main/CMakeLists.txt`; esp-mqtt
+  now comes from the component manager (`espressif/mqtt`). Resolved versions
+  are pinned in the committed `dependencies.lock`.
+- RS485 direction control is the UART's RTS pin (`uart_set_pin(..., rts)` +
+  `UART_MODE_RS485_HALF_DUPLEX`); the old `uart_set_rs485_*` helpers are gone.
+- If IDF output looks garbled when redirected, set `$env:PYTHONUTF8 = '1'`.
+- `sdkconfig.defaults` only applies to options missing from `sdkconfig`:
+  after changing it (or the IDF/Python version) delete `sdkconfig` (and
+  `build/`) and run `idf.py set-target esp32s3` again.
 
-`GET /api/power` includes `state`, `age_ms` and `uptime_s`:
+### Tests and CI
 
-| `state` | Age of last good poll | Dashboard |
-|---------|-----------------------|-----------|
-| `fresh` | under 5 s | green **FRESH** badge |
-| `aging` | 5 to 15 s | amber **AGING** badge (one or two missed polls) |
-| `stale` | over 15 s | red **STALE** badge, values dimmed |
-| `none`  | no poll succeeded yet | grey **NO DATA** badge |
+The protocol and limiter code is plain C and has host unit tests with
+independently computed frames:
 
-If the ESP32 itself stops answering, the page shows a red **UNREACHABLE** badge
-and dims the values; it recovers on its own. `ok` is `true` for `fresh` and
-`aging`. `uptime_s` is the ESP32 time since boot, shown as `2m 22s` / `1d 3h`.
+```sh
+make -C test/host        # needs gcc/clang; runs with ASan/UBSan
+```
 
-## Firmware updates (OTA)
+GitHub Actions runs them and builds the firmware on every push
+(`.github/workflows/ci.yml`; the binary is attached as an artifact).
 
-The partition table has two 4 MB app slots (`ota_0`/`ota_1`). After **one**
-USB flash with this table (`idf.py -p COMx flash`), later updates can be
-uploaded on the settings page under *Firmware & system*
-(`build/ESP32_growatt_vEM.bin`), or with
-`curl -u admin:<pw> -H "Content-Type: application/octet-stream" --data-binary @build/ESP32_growatt_vEM.bin http://<ip>/api/ota`.
+### Serial console
 
-A new image boots in "pending verify" state and confirms itself after 60 s.
-If it crashes or is reset before that, the bootloader rolls back to the
-previous image. NVS (settings) is at the same offset as before, so settings
-survive the switch to the OTA table.
-
-## Web password
-
-*Settings -> System -> Web password* protects the settings page, the
-settings API, reboot and OTA with HTTP Basic auth (user `admin`). The
-dashboard and `/api/power` stay public. POST endpoints require a JSON (or
-octet-stream) content type, which blocks cross-site form posts.
-
-## Debugging helpers
-
-`tools/serial_capture.py` resets the chip and writes N seconds of console
-output to a UTF-8 file. Close the ESP-IDF Monitor first (it holds the port):
+`tools/serial_capture.py` writes N seconds of console output to a UTF-8
+file, optionally resetting the chip first (close the IDF monitor first):
 
 ```powershell
-python tools\serial_capture.py COM10 60 serial.log
+python tools\serial_capture.py COM10 60 serial.log --reset
 ```
 
-## Structure
+### Structure
 
 ```
 .
-├── CMakeLists.txt          # top-level project
-├── partitions.csv          # NVS + 2 x 4 MB OTA app slots
-├── sdkconfig.defaults      # ESP32-S3 / PSRAM / flash defaults
-├── tools/serial_capture.py # console capture helper
-├── test/host/              # host unit tests (make -C test/host, run in CI)
+├── CMakeLists.txt, partitions.csv (NVS + 2 x 4 MB OTA slots), sdkconfig.defaults
+├── dependencies.lock        # pinned component versions
+├── .github/workflows/ci.yml # host tests + firmware build
+├── test/host/               # unit tests for mb_proto + limiter
+├── tools/serial_capture.py  # console capture helper
 └── main/
-    ├── CMakeLists.txt
-    ├── idf_component.yml   # managed components (cjson, mdns, mqtt)
-    ├── main.c              # startup
-    ├── settings.c/.h       # table-driven settings (NVS, JSON, validation)
-    ├── wifi.c/.h           # STA connection, safe WiFi switching
-    ├── shelly.c/.h         # Shelly 3EM polling, freshness state
-    ├── web.c/.h            # HTTP server, API, auth
-    ├── ota.c/.h            # firmware upload, rollback confirmation
-    ├── modbus.c/.h         # RS485 UART task, meter emulation, frame log
-    ├── mb_proto.c/.h       # Modbus RTU + SDM120/DDSU666 register maps (pure C)
-    ├── limiter.c/.h        # export limit offset + fail-safe (pure C)
-    ├── vem.c/.h            # combines Shelly data, limiter, meter values
-    ├── history.c/.h        # 1 s / 1 min power history for the graph
-    ├── mqtt_ha.c/.h        # MQTT state/commands, Home Assistant discovery
-    ├── telegram.c/.h       # Telegram send queue (HTTPS, retries)
-    ├── monitor.c/.h        # alerts + daily report
-    ├── clock.c/.h          # SNTP + time zone
-    ├── www/                # embedded HTML pages
-    ├── wifi_credentials.h          # (gitignored) your LAN credentials
-    ├── wifi_credentials.h.example  # committed template
-    ├── shelly_config.h             # (gitignored) Shelly device ID / fallback IP
-    └── shelly_config.h.example     # committed template
+    ├── main.c               # startup order
+    ├── settings.c/.h        # table-driven settings (NVS, JSON, validation, change callbacks)
+    ├── wifi.c/.h            # STA, safe WiFi switching, fallback AP, hostname
+    ├── shelly.c/.h          # Shelly 3EM polling, freshness, mDNS
+    ├── vem.c/.h             # one view: Shelly data + limiter + meter values
+    ├── limiter.c/.h         # export limit offset + fail-safe (pure C)
+    ├── mb_proto.c/.h        # Modbus RTU + SDM120/DDSU666 register maps (pure C)
+    ├── modbus.c/.h          # RS485 task, meter emulation, frame log
+    ├── history.c/.h         # 1 s / 1 min history for the graph
+    ├── mqtt_ha.c/.h         # MQTT state/commands, HA discovery
+    ├── telegram.c/.h        # Telegram send queue
+    ├── monitor.c/.h         # alerts, daily report, self-restart
+    ├── clock.c/.h           # SNTP + time zone
+    ├── web.c/.h             # HTTP server, API, auth
+    ├── ota.c/.h             # firmware upload, rollback confirmation
+    ├── www/                 # embedded pages (+ vendor/uPlot)
+    └── *.h.example          # templates for the gitignored local config
 ```

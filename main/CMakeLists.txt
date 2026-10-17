@@ -17,6 +17,7 @@ idf_component_register(
     INCLUDE_DIRS "."
     EMBED_TXTFILES "www/index.html"
                    "www/settings.html"
+                   "www/diag.html"
                    "www/vendor/uplot.min.js"
                    "www/vendor/uplot.min.css"
     PRIV_REQUIRES esp_driver_uart esp_hw_support esp_wifi esp_netif esp_event nvs_flash

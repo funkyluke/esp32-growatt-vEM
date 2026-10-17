@@ -7,6 +7,8 @@
 #include "esp_timer.h"
 #include "esp_http_client.h"
 #include "mdns.h"
+#include "esp_task_wdt.h"
+#include "wifi.h"
 #include "cJSON.h"
 #include "settings.h"
 #include "shelly.h"
@@ -146,6 +148,17 @@ static bool fetch_status(shelly_snapshot_t *snap) {
     return ok;
 }
 
+/* Sleeps in 1 s steps so the task watchdog stays fed. */
+static void wdt_sleep(int ms) {
+    while (ms > 0) {
+        esp_task_wdt_reset();
+        int step = ms > 1000 ? 1000 : ms;
+        vTaskDelay(pdMS_TO_TICKS(step));
+        ms -= step;
+    }
+    esp_task_wdt_reset();
+}
+
 static void forget_address(void) {
     s_ip[0] = '\0';
     s_ip_is_fallback = false;
@@ -153,7 +166,9 @@ static void forget_address(void) {
 
 static void poll_task(void *arg) {
     int fails = 0;
+    esp_task_wdt_add(NULL);   /* timeout 30 s: longer than one mDNS + 2 HTTP attempts */
     while (1) {
+        esp_task_wdt_reset();
         settings_t cfg;
         settings_copy(&cfg);
 
@@ -181,7 +196,7 @@ static void poll_task(void *arg) {
                     s_ip_is_fallback = true;
                     ESP_LOGW(TAG, "using fallback IP %s", s_ip);
                 } else {
-                    vTaskDelay(pdMS_TO_TICKS(5000));
+                    wdt_sleep(5000);
                     continue;
                 }
             }
@@ -191,7 +206,7 @@ static void poll_task(void *arg) {
         shelly_snapshot_t snap = {0};
         bool ok = fetch_status(&snap);
         if (!ok) {
-            vTaskDelay(pdMS_TO_TICKS(300));
+            wdt_sleep(300);
             ok = fetch_status(&snap);
         }
 
@@ -216,7 +231,7 @@ static void poll_task(void *arg) {
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(cfg.shelly_poll_s * 1000));
+        wdt_sleep(cfg.shelly_poll_s * 1000);
     }
 }
 
@@ -247,5 +262,9 @@ void shelly_init(void) {
     s_mutex = xSemaphoreCreateMutex();
     settings_subscribe(APPLY_SHELLY, shelly_reresolve);
     ESP_ERROR_CHECK(mdns_init());
+    /* advertise ourselves as growatt-vem.local with a web service */
+    mdns_hostname_set(WIFI_HOSTNAME);
+    mdns_instance_name_set("Growatt vEM");
+    mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
     xTaskCreate(poll_task, "shelly_poll", 4096, NULL, 5, NULL);
 }

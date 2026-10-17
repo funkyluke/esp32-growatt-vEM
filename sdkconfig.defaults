@@ -36,3 +36,6 @@ CONFIG_SPIRAM_USE_MALLOC=y
 # Reboot if a watched task hangs
 CONFIG_ESP_TASK_WDT_EN=y
 CONFIG_ESP_TASK_WDT_PANIC=y
+
+# Watchdog timeout: the Shelly poll task blocks up to ~15 s in mDNS/HTTP
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=30

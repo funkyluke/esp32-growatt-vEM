@@ -24,6 +24,8 @@ static const char *TAG = "monitor";
 #define EXPORT_HOLD_S     60      /* export above the limit for this long -> alert */
 #define EXPORT_TOL_W      50      /* tolerance above the limit */
 #define AT_LIMIT_BAND_W   50      /* "at the limit" = within this of the target */
+#define STALE_REBOOT_S    (30 * 60) /* restart after this long without Shelly data ... */
+static bool s_had_fresh;           /* ... but only if we ever had data since boot */
 
 /* Alert state (monitor task only). */
 static struct {
@@ -195,7 +197,17 @@ static void tick(void) {
                   cfg.lim_failsafe == LIM_FAILSAFE_SILENT ? "not answered" : "told to throttle");
             A.meter_alerted = true;
         }
+        /* Self-heal a stuck network stack. A Shelly that is really offline
+         * never gives fresh data after the restart, so this cannot loop. */
+        if (s_had_fresh && wifi_is_connected() &&
+            now_us - A.meter_bad_since >= STALE_REBOOT_S * 1000000LL) {
+            ESP_LOGE(TAG, "no Shelly data for %d min, restarting", STALE_REBOOT_S / 60);
+            telegram_send("Growatt vEM: no Shelly data for 30 min although WiFi is up, restarting.");
+            vTaskDelay(pdMS_TO_TICKS(8000));   /* let the message go out */
+            esp_restart();
+        }
     } else {
+        s_had_fresh = true;
         if (A.meter_alerted) {
             fmt_dur(d, sizeof(d), (now_us - A.meter_bad_since) / 1000000);
             alert(tg && cfg.tg_al_meter, "Growatt vEM: Shelly data is back after %s.", d);

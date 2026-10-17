@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagnostics - Growatt vEM</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:860px;margin:2rem auto;padding:0 1rem;color:#222}
+h1{font-size:1.4rem}h2{font-size:1.05rem;margin-top:1.6rem}
+.box{background:#f6f6f6;border-radius:10px;padding:.6rem 1rem;overflow-x:auto}
+table{border-collapse:collapse;font-size:.88rem;width:100%}
+td,th{padding:.2rem .7rem .2rem 0;text-align:left;white-space:nowrap}
+th{color:#666;font-weight:600}
+code{font-size:.82rem}
+.bad{color:#c62828}.ok{color:#2e7d32}
+</style></head><body>
+<div style="float:right"><a href="/">&larr; Dashboard</a> &middot; <a href="/settings">Settings</a></div>
+<h1>&#128295; Diagnostics</h1>
+<h2>System</h2><div class="box"><table id="info"></table></div>
+<h2>Modbus (meter port)</h2><div class="box"><table id="mbs"></table></div>
+<h2>Last frames from the bus (newest first)</h2>
+<div class="box"><table id="log"><tr><td>no frames yet</td></tr></table></div>
+<script>
+function $(id){return document.getElementById(id);}
+function row(t,cells,head){var tr=document.createElement('tr');
+  cells.forEach(function(c){var td=document.createElement(head?'th':'td');
+    if(c&&c.nodeType)td.appendChild(c);else td.textContent=c==null?'':String(c);tr.appendChild(td);});
+  t.appendChild(tr);}
+function kv(t,o){t.innerHTML='';for(var k in o)row(t,[k,o[k]]);}
+function age(ms){return ms<0?'never':ms<1000?ms+' ms ago':(ms/1000).toFixed(1)+' s ago';}
+function load(){
+  fetch('/api/info').then(function(r){return r.json()}).then(function(d){kv($('info'),d);});
+  fetch('/api/modbus').then(function(r){return r.json()}).then(function(d){
+    var s={};for(var k in d)if(k!='log')s[k]=k=='last_request_age_ms'?age(d[k]):d[k];kv($('mbs'),s);
+    var t=$('log');t.innerHTML='';
+    if(!d.log.length){row(t,['no frames yet (no inverter connected, or wrong baud rate / A-B swapped)']);return;}
+    row(t,['age','result','addr','fc','start','count','answered','bytes'],true);
+    d.log.forEach(function(e){var c=document.createElement('code');c.textContent=e.hex;
+      var res=e.result+(e.exception?' (exception '+e.exception+')':'')+(e.unmapped?' (unmapped)':'');
+      row(t,[age(e.age_ms),res,e.addr,'0x'+('0'+e.fc.toString(16)).slice(-2),
+             '0x'+('000'+e.start.toString(16)).slice(-4),e.count,e.answered?'yes':'no',c]);});
+  });}
+load();setInterval(load,2000);
+</script></body></html>

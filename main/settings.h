@@ -14,6 +14,7 @@ typedef struct {
     /* WiFi */
     char    wifi_ssid[33];
     char    wifi_pass[65];
+    char    wifi_bssid[18];       /* optional "aa:bb:cc:dd:ee:ff": join only this AP */
     /* Shelly 3EM */
     char    shelly_id[24];
     char    shelly_ip[16];
@@ -87,8 +88,8 @@ void settings_wifi_msg_get(char *out, size_t n);
 /* Empty string and "0.0.0.0" both mean "not set". */
 bool settings_ip_is_set(const char *s);
 
-/* Write new WiFi credentials into the live config (used by the revert path). */
-void settings_update_wifi(const char *ssid, const char *pass);
+/* Restore the WiFi fields from `old` into the live config (revert path). */
+void settings_update_wifi(const settings_t *old);
 
 /* Apply a parsed JSON object of settings (any subset of the keys; a secret
  * given as "" is kept, given as null is cleared). Returns false and fills

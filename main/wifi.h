@@ -3,7 +3,14 @@
 #include "esp_netif.h"
 #include "settings.h"
 
+#define WIFI_HOSTNAME "growatt-vem"   /* DHCP name and mDNS growatt-vem.local */
+
+/* Joins the configured network. Without an IP for 2 min it also opens the
+ * fallback AP "GrowattVEM-XXXX" (password growattvem, http://192.168.4.1/). */
 void wifi_init_sta(void);
+
+/* True while the fallback access point is up. */
+bool wifi_ap_active(void);
 
 /* The device's own IPv4 address (set once DHCP completes). */
 const esp_ip4_addr_t *wifi_ip(void);
