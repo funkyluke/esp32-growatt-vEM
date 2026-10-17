@@ -30,6 +30,10 @@ extern const char index_html_start[]    asm("_binary_index_html_start");
 extern const char index_html_end[]      asm("_binary_index_html_end");
 extern const char settings_html_start[] asm("_binary_settings_html_start");
 extern const char settings_html_end[]   asm("_binary_settings_html_end");
+extern const char uplot_js_start[]      asm("_binary_uplot_min_js_start");
+extern const char uplot_js_end[]        asm("_binary_uplot_min_js_end");
+extern const char uplot_css_start[]     asm("_binary_uplot_min_css_start");
+extern const char uplot_css_end[]       asm("_binary_uplot_min_css_end");
 
 /* ---- helpers ---- */
 
@@ -98,6 +102,19 @@ bool web_check_auth(httpd_req_t *req) {
 
 static esp_err_t index_handler(httpd_req_t *req) {
     return send_page(req, index_html_start, index_html_end);
+}
+
+/* Vendored libraries: the URL carries the version, so cache for a day. */
+static esp_err_t uplot_js_handler(httpd_req_t *req) {
+    httpd_resp_set_type(req, "application/javascript");
+    httpd_resp_set_hdr(req, "Cache-Control", "max-age=86400");
+    return httpd_resp_send(req, uplot_js_start, uplot_js_end - uplot_js_start - 1);
+}
+
+static esp_err_t uplot_css_handler(httpd_req_t *req) {
+    httpd_resp_set_type(req, "text/css");
+    httpd_resp_set_hdr(req, "Cache-Control", "max-age=86400");
+    return httpd_resp_send(req, uplot_css_start, uplot_css_end - uplot_css_start - 1);
 }
 
 static esp_err_t settings_page_handler(httpd_req_t *req) {
@@ -304,6 +321,8 @@ void web_start(void) {
     static const httpd_uri_t uris[] = {
         { .uri = "/",             .method = HTTP_GET,  .handler = index_handler },
         { .uri = "/settings",     .method = HTTP_GET,  .handler = settings_page_handler },
+        { .uri = "/uplot-1.6.31.min.js",  .method = HTTP_GET, .handler = uplot_js_handler },
+        { .uri = "/uplot-1.6.31.min.css", .method = HTTP_GET, .handler = uplot_css_handler },
         { .uri = "/api/status",   .method = HTTP_GET,  .handler = status_handler },
         { .uri = "/api/info",     .method = HTTP_GET,  .handler = info_handler },
         { .uri = "/api/power",    .method = HTTP_GET,  .handler = power_handler },

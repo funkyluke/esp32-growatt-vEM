@@ -2,6 +2,7 @@
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Growatt vEM</title>
+<link rel="stylesheet" href="/uplot-1.6.31.min.css">
 <style>
 body{font-family:system-ui,sans-serif;max-width:720px;margin:2rem auto;padding:0 1rem;color:#222}
 h1{font-size:1.4rem}.sub{color:#888;font-size:.85rem}
@@ -16,6 +17,9 @@ body.stale .grid,body.stale .total{opacity:.4}
 .lim{background:#f3eefb;border-radius:10px;padding:1rem;text-align:center;margin-top:1rem}
 .lim .v{font-size:1.6rem;font-weight:700}
 .badge.active{background:#2e9e4f}.badge.bypass{background:#777}.badge.failsafe{background:#c62828}
+.chart{background:#fafafa;border-radius:10px;padding:.8rem;margin-top:1rem}
+.rng button{border:1px solid #bbb;background:#fff;border-radius:6px;padding:.25rem .7rem;margin:0 .2rem .5rem 0;cursor:pointer}
+.rng button.on{background:#1565c0;color:#fff;border-color:#1565c0}
 @media (max-width:480px){.grid{grid-template-columns:1fr}}
 </style></head>
 <body>
@@ -33,6 +37,9 @@ body.stale .grid,body.stale .total{opacity:.4}
 <div class="lim"><div class="u">Reported to inverter</div><div class="v" id="rep">--</div>
 <div class="u"><span class="badge" id="lst">--</span> <span id="ltxt"></span></div>
 <div class="u" id="inv">--</div></div>
+<div class="chart"><div class="rng" id="rng"></div><div id="plot"></div>
+<div class="u">Shaded: no fresh meter data. Dashed red: export limit. Click legend entries to show L1-L3.</div></div>
+<script src="/uplot-1.6.31.min.js"></script>
 <script>
 function set(id,v){var e=document.getElementById(id);if(v!=null)e.textContent=v;}
 function fmt(s){var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
@@ -56,4 +63,55 @@ function poll(){fetch('/api/power').then(function(r){return r.json()}).then(func
   set('inv',d.inverter.meter+', inverter '+(a<0?'has not polled yet':a<10000?'polling':'last poll '+fmt(Math.round(a/1000))+' ago'));
 }).catch(function(){badge('lost','UNREACHABLE','device not answering');});}
 poll();setInterval(poll,2000);
+
+/* ---- history graph ---- */
+var RANGES=[['15m','s',900],['1h','s',3600],['6h','m',360],['24h','m',1440],['7d','m',10080]];
+var H={s:{next:0,cap:3600,x:[],c:{}},m:{next:0,cap:10080,x:[],c:{}}};
+var COLS=['grid','rep','lim','l1','l2','l3','fl'];
+var cur=RANGES[0],plot=null,curFl=[];
+function fetchHist(res){var b=H[res];
+  return fetch('/api/history?res='+res+'&since='+b.next).then(function(r){return r.json()}).then(function(d){
+    /* device rebooted (sequence went back) or we fell behind the ring: start over */
+    if(b.next>0&&(d.next<b.next||d.first>b.next)){b.next=0;b.x=[];b.c={};return fetchHist(res);}
+    var now=Date.now()/1000,n=d.grid.length;
+    for(var i=0;i<n;i++){b.x.push(now-(d.next-1-(d.first+i))*d.step);
+      COLS.forEach(function(k){(b.c[k]=b.c[k]||[]).push(d[k][i]);});}
+    b.next=d.next;
+    var drop=b.x.length-b.cap;
+    if(drop>0){b.x.splice(0,drop);COLS.forEach(function(k){b.c[k].splice(0,drop);});}
+  });}
+function series(){var b=H[cur[1]],k=Math.max(0,b.x.length-cur[2]);
+  function sl(a){return (a||[]).slice(k);}
+  curFl=sl(b.c.fl);
+  return [sl(b.x),sl(b.c.grid),sl(b.c.rep),sl(b.c.lim).map(function(v){return v?-v:null;}),
+          sl(b.c.l1),sl(b.c.l2),sl(b.c.l3)];}
+function shade(u){var x=u.data[0],fl=curFl,ctx=u.ctx,t=u.bbox.top,h=u.bbox.height,st=-1;
+  ctx.save();ctx.fillStyle='rgba(198,40,40,.12)';
+  for(var i=0;i<=x.length;i++){var bad=i<x.length&&(fl[i]&5);
+    if(bad&&st<0)st=i;
+    if(!bad&&st>=0){var a=u.valToPos(x[st],'x',true),z=u.valToPos(x[i-1],'x',true);
+      ctx.fillRect(a,t,Math.max(z-a,2),h);st=-1;}}
+  ctx.restore();}
+function makePlot(){var el=document.getElementById('plot');
+  var opts={width:el.clientWidth,height:300,cursor:{drag:{x:true,y:false}},
+    scales:{x:{time:true}},
+    axes:[{},{label:'W',size:60}],
+    hooks:{drawClear:[shade]},
+    series:[{},
+      {label:'Grid',stroke:'#1565c0',width:2},
+      {label:'Reported',stroke:'#8e24aa',width:1,dash:[4,3]},
+      {label:'Export limit',stroke:'#c62828',width:1,dash:[6,4],points:{show:false}},
+      {label:'L1',stroke:'#2e7d32',show:false},{label:'L2',stroke:'#ef6c00',show:false},{label:'L3',stroke:'#6d4c41',show:false}]};
+  opts.series.forEach(function(s,i){if(i)s.points={show:false};});
+  el.innerHTML='';plot=new uPlot(opts,series(),el);}
+function redraw(){if(!plot)makePlot();else plot.setData(series());}
+function pick(r){cur=r;
+  [].forEach.call(document.querySelectorAll('#rng button'),function(b){b.className=b.textContent==r[0]?'on':'';});
+  fetchHist(r[1]).then(redraw);}
+RANGES.forEach(function(r){var b=document.createElement('button');b.textContent=r[0];b.onclick=function(){pick(r)};
+  document.getElementById('rng').appendChild(b);});
+window.addEventListener('resize',function(){if(plot)plot.setSize({width:document.getElementById('plot').clientWidth,height:300});});
+if(window.uPlot){pick(RANGES[0]);
+  setInterval(function(){if(cur[1]=='s')fetchHist('s').then(redraw);},2000);
+  setInterval(function(){if(cur[1]=='m')fetchHist('m').then(redraw);},60000);}
 </script></body></html>

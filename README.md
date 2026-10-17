@@ -123,6 +123,18 @@ The web server exposes:
 - `GET /api/status` — JSON `{"ip": "...", "wifi": "..."}`
 - `GET /api/info` — firmware version, reset reason, heap, RSSI
 - `GET /api/modbus` — Modbus counters and the last 24 frames (hex, decoded)
+- `GET /api/history?res=s|m&since=<seq>` — power history as columns
+  (`grid`, `l1`-`l3`, `rep` = reported to the inverter, `lim`, `fl` flags;
+  1 min data adds `gmin`/`gmax`). `next` is the `since` for the next call.
+
+## Live graph
+
+The dashboard graphs grid power, the power reported to the inverter and the
+export limit: 1 s resolution for the last hour (15 min / 1 h), 1 min
+averages for 7 days (6 h / 24 h / 7 d). Periods without fresh meter data are
+shaded. The history lives in PSRAM (about 230 KB) and starts empty after a
+reboot. The chart uses [uPlot](https://github.com/leeoniya/uPlot) 1.6.31
+(MIT, `main/www/vendor/`), embedded in the firmware so it works offline.
 - `POST /api/ota` — firmware upload, `POST /api/reboot`
 
 ## Shelly 3EM (Gen1) power meter
@@ -245,6 +257,7 @@ python tools\serial_capture.py COM10 60 serial.log
     ├── mb_proto.c/.h       # Modbus RTU + SDM120/DDSU666 register maps (pure C)
     ├── limiter.c/.h        # export limit offset + fail-safe (pure C)
     ├── vem.c/.h            # combines Shelly data, limiter, meter values
+    ├── history.c/.h        # 1 s / 1 min power history for the graph
     ├── www/                # embedded HTML pages
     ├── wifi_credentials.h          # (gitignored) your LAN credentials
     ├── wifi_credentials.h.example  # committed template
