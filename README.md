@@ -1,7 +1,41 @@
 # ESP32_growatt_vEM
 
-ESP-IDF project stub for the [Waveshare ESP32-S3-RS485-CAN](https://www.waveshare.com/esp32-s3-rs485-can.htm)
-industrial control board.
+Virtual energy meter for a **Growatt MIC** inverter on the
+[Waveshare ESP32-S3-RS485-CAN](https://www.waveshare.com/esp32-s3-rs485-can.htm)
+board. It reads a Shelly 3EM over WiFi and answers the inverter's meter
+queries on RS485 as an Eastron SDM120 (or Chint DDSU666), shifting the
+reported power so that the inverter exports at most a configurable limit
+(default 800 W) into the grid.
+
+## How the export limit works
+
+```
+grid      = L1 + L2 + L3 from the Shelly       (+ import / - export)
+reported  = grid + (limit - margin)            (sent to the inverter)
+inverter export limit = 0 W                    (keeps reported >= 0)
+=> grid >= -(limit - margin)                   (at most `limit` W exported)
+```
+
+- Set the inverter's own export limitation to **on, 0 W / 0 %**, meter type
+  matching *Meter emulation -> Emulated meter*. All tuning then happens on
+  the ESP (*Export limit* settings, live, no reboot).
+- **Fail-safe:** the inverter only gets real values while the Shelly data is
+  *fresh* (younger than max(5 s, 2.5 polls)). Otherwise it is told about a
+  large export (5 kW) so it throttles, or, with *Stop answering*, gets no
+  reply and its own meter-loss behaviour applies. Use a poll interval of 1-2 s.
+- The three phases are summed into one virtual single-phase meter, so it
+  does not matter which phase the MIC feeds.
+- Not verified on a real MIC yet: which registers it reads and the sign
+  convention. Use *Mode: Listen only* first and check `GET /api/modbus`
+  (every frame is logged, nothing is transmitted). *Invert power sign*
+  exists in case the inverter reacts the wrong way round.
+
+### Wiring
+
+ESP32 board RS485 **A/B** to the inverter's meter RS485 **A/B** (see the
+MIC manual, "export limitation / meter"). Bus settings: address 1, 9600
+baud, 8N1 (adjustable). Enable the board's 120 ohm termination jumper; the
+ESP is at the end of the bus.
 
 ## Hardware pin map
 
@@ -88,6 +122,7 @@ The web server exposes:
 - `GET /api/power` — JSON with per-phase power/current/voltage and the total
 - `GET /api/status` — JSON `{"ip": "...", "wifi": "..."}`
 - `GET /api/info` — firmware version, reset reason, heap, RSSI
+- `GET /api/modbus` — Modbus counters and the last 24 frames (hex, decoded)
 - `POST /api/ota` — firmware upload, `POST /api/reboot`
 
 ## Shelly 3EM (Gen1) power meter
@@ -196,6 +231,7 @@ python tools\serial_capture.py COM10 60 serial.log
 ├── partitions.csv          # NVS + 2 x 4 MB OTA app slots
 ├── sdkconfig.defaults      # ESP32-S3 / PSRAM / flash defaults
 ├── tools/serial_capture.py # console capture helper
+├── test/host/              # host unit tests (make -C test/host, run in CI)
 └── main/
     ├── CMakeLists.txt
     ├── idf_component.yml   # managed components (cjson, mdns)
@@ -205,7 +241,10 @@ python tools\serial_capture.py COM10 60 serial.log
     ├── shelly.c/.h         # Shelly 3EM polling, freshness state
     ├── web.c/.h            # HTTP server, API, auth
     ├── ota.c/.h            # firmware upload, rollback confirmation
-    ├── rs485.c/.h          # RS485 UART
+    ├── modbus.c/.h         # RS485 UART task, meter emulation, frame log
+    ├── mb_proto.c/.h       # Modbus RTU + SDM120/DDSU666 register maps (pure C)
+    ├── limiter.c/.h        # export limit offset + fail-safe (pure C)
+    ├── vem.c/.h            # combines Shelly data, limiter, meter values
     ├── www/                # embedded HTML pages
     ├── wifi_credentials.h          # (gitignored) your LAN credentials
     ├── wifi_credentials.h.example  # committed template

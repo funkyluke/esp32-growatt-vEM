@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests (Modbus protocol, export limiter)
+        run: make -C test/host
+
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder local config
+        run: |
+          cp main/wifi_credentials.h.example main/wifi_credentials.h
+          cp main/shelly_config.h.example main/shelly_config.h
+      - name: Build (ESP-IDF v6.1, esp32s3)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.1
+          target: esp32s3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: build/ESP32_growatt_vEM.bin

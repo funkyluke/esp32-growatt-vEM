@@ -1,6 +1,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -8,6 +9,7 @@
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "esp_app_desc.h"
+#include "esp_ota_ops.h"
 #include "esp_http_server.h"
 #include "mbedtls/base64.h"
 #include "cJSON.h"
@@ -15,6 +17,8 @@
 #include "shelly.h"
 #include "wifi.h"
 #include "ota.h"
+#include "vem.h"
+#include "modbus.h"
 #include "web.h"
 
 static const char *TAG = "web";
@@ -134,6 +138,12 @@ static esp_err_t info_handler(httpd_req_t *req) {
     cJSON_AddStringToObject(o, "firmware", esp_app_get_description()->version);
     cJSON_AddStringToObject(o, "built", esp_app_get_description()->date);
     cJSON_AddStringToObject(o, "reset reason", reset_reason_name(esp_reset_reason()));
+    const esp_partition_t *run = esp_ota_get_running_partition();
+    esp_ota_img_states_t ost;
+    bool pending = esp_ota_get_state_partition(run, &ost) == ESP_OK && ost == ESP_OTA_IMG_PENDING_VERIFY;
+    char part[40];
+    snprintf(part, sizeof(part), "%s%s", run->label, pending ? " (not yet confirmed)" : "");
+    cJSON_AddStringToObject(o, "app slot", part);
     cJSON_AddNumberToObject(o, "uptime s", (double)(esp_timer_get_time() / 1000000));
     cJSON_AddNumberToObject(o, "free heap", esp_get_free_heap_size());
     cJSON_AddNumberToObject(o, "min free heap", esp_get_minimum_free_heap_size());
@@ -142,33 +152,45 @@ static esp_err_t info_handler(httpd_req_t *req) {
     return web_send_json(req, o);
 }
 
+/* Rounded to 2 decimals so the JSON stays short (float -> double noise). */
+static double r2(float f) { return round((double)f * 100.0) / 100.0; }
+
 static esp_err_t power_handler(httpd_req_t *req) {
-    shelly_snapshot_t snap;
-    shelly_get_snapshot(&snap);
+    vem_t v;
+    vem_compute(&v);
     settings_t cfg;
     settings_copy(&cfg);
-    int64_t age_ms;
-    shelly_state_t st = shelly_state(&snap, &age_ms);
     char diag_url[96];
     int diag_status = shelly_diag(diag_url, sizeof(diag_url));
 
     cJSON *o = cJSON_CreateObject();
     cJSON_AddStringToObject(o, "id", cfg.shelly_id);
-    cJSON_AddBoolToObject(o, "ok", st == SHELLY_FRESH || st == SHELLY_AGING);
-    cJSON_AddStringToObject(o, "state", shelly_state_name(st));
-    cJSON_AddNumberToObject(o, "age_ms", (double)age_ms);
+    cJSON_AddBoolToObject(o, "ok", v.state == SHELLY_FRESH || v.state == SHELLY_AGING);
+    cJSON_AddStringToObject(o, "state", shelly_state_name(v.state));
+    cJSON_AddNumberToObject(o, "age_ms", (double)v.age_ms);
     cJSON_AddNumberToObject(o, "uptime_s", (double)(esp_timer_get_time() / 1000000));
-    cJSON_AddNumberToObject(o, "total", snap.total_power);
+    cJSON_AddNumberToObject(o, "total", r2(v.snap.total_power));
+    cJSON_AddNumberToObject(o, "import_kwh", r2(v.import_kwh));
+    cJSON_AddNumberToObject(o, "export_kwh", r2(v.export_kwh));
     cJSON_AddNumberToObject(o, "err", diag_status);
     cJSON_AddStringToObject(o, "url", diag_url);
     cJSON *ph = cJSON_AddArrayToObject(o, "phases");
     for (int i = 0; i < 3; i++) {
         cJSON *p = cJSON_CreateObject();
-        cJSON_AddNumberToObject(p, "power", snap.phase[i].power);
-        cJSON_AddNumberToObject(p, "current", snap.phase[i].current);
-        cJSON_AddNumberToObject(p, "voltage", snap.phase[i].voltage);
+        cJSON_AddNumberToObject(p, "power", r2(v.snap.phase[i].power));
+        cJSON_AddNumberToObject(p, "current", r2(v.snap.phase[i].current));
+        cJSON_AddNumberToObject(p, "voltage", r2(v.snap.phase[i].voltage));
         cJSON_AddItemToArray(ph, p);
     }
+    cJSON *lim = cJSON_AddObjectToObject(o, "limiter");
+    cJSON_AddStringToObject(lim, "state", limiter_state_name(v.lim.state));
+    cJSON_AddNumberToObject(lim, "limit_w", cfg.lim_export_w);
+    cJSON_AddNumberToObject(lim, "offset_w", r2(v.lim.offset_w));
+    cJSON_AddNumberToObject(lim, "reported_w", r2(v.lim.reported_w));
+    cJSON_AddBoolToObject(lim, "answering", v.lim.answer && cfg.mb_mode == MODBUS_MODE_EMULATE);
+    cJSON *inv = cJSON_AddObjectToObject(o, "inverter");
+    cJSON_AddNumberToObject(inv, "last_poll_age_ms", (double)modbus_last_request_age_ms());
+    cJSON_AddStringToObject(inv, "meter", mb_meter_name((mb_meter_t)cfg.mb_meter));
     return web_send_json(req, o);
 }
 

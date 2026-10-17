@@ -4,7 +4,7 @@
 #include "shelly.h"
 #include "web.h"
 #include "ota.h"
-#include "rs485.h"
+#include "modbus.h"
 
 static const char *TAG = "app";
 
@@ -13,8 +13,8 @@ void app_main(void) {
 
     settings_init();
     ota_init();
-    rs485_init();
     wifi_init_sta();
     web_start();
     shelly_init();
+    modbus_init();
 }

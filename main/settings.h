@@ -18,6 +18,17 @@ typedef struct {
     char    shelly_id[24];
     char    shelly_ip[16];
     int32_t shelly_poll_s;
+    /* Meter emulation (Modbus) */
+    int32_t mb_mode;          /* modbus_mode_t */
+    int32_t mb_meter;         /* mb_meter_t */
+    int32_t mb_addr;
+    int32_t mb_baud;          /* index: 2400, 4800, 9600, 19200 */
+    int32_t mb_invert;
+    /* Export limit */
+    int32_t lim_enable;
+    int32_t lim_export_w;
+    int32_t lim_margin_w;
+    int32_t lim_failsafe;     /* limiter_failsafe_t */
     /* System */
     char    web_pass[33];
 } settings_t;

@@ -13,6 +13,9 @@ h1{font-size:1.4rem}.sub{color:#888;font-size:.85rem}
 .badge{display:inline-block;padding:.1rem .6rem;border-radius:1rem;font-weight:700;font-size:.75rem;color:#fff;background:#999}
 .badge.fresh{background:#2e9e4f}.badge.aging{background:#e09a00}.badge.stale,.badge.lost{background:#c62828}
 body.stale .grid,body.stale .total{opacity:.4}
+.lim{background:#f3eefb;border-radius:10px;padding:1rem;text-align:center;margin-top:1rem}
+.lim .v{font-size:1.6rem;font-weight:700}
+.badge.active{background:#2e9e4f}.badge.bypass{background:#777}.badge.failsafe{background:#c62828}
 @media (max-width:480px){.grid{grid-template-columns:1fr}}
 </style></head>
 <body>
@@ -25,7 +28,11 @@ body.stale .grid,body.stale .total{opacity:.4}
 <div class="phase"><div class="u">L2 power</div><div class="v" id="p1">--</div><div class="u" id="i1">--</div></div>
 <div class="phase"><div class="u">L3 power</div><div class="v" id="p2">--</div><div class="u" id="i2">--</div></div>
 </div>
-<div class="total"><div class="u">Grid power (+ import / &minus; export)</div><div class="v" id="tot">--</div></div>
+<div class="total"><div class="u">Grid power (+ import / &minus; export)</div><div class="v" id="tot">--</div>
+<div class="u" id="kwh">--</div></div>
+<div class="lim"><div class="u">Reported to inverter</div><div class="v" id="rep">--</div>
+<div class="u"><span class="badge" id="lst">--</span> <span id="ltxt"></span></div>
+<div class="u" id="inv">--</div></div>
 <script>
 function set(id,v){var e=document.getElementById(id);if(v!=null)e.textContent=v;}
 function fmt(s){var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
@@ -39,6 +46,14 @@ function poll(){fetch('/api/power').then(function(r){return r.json()}).then(func
   badge(LABEL[d.state]?d.state:'none',LABEL[d.state]||'NO DATA',a);
   for(var i=0;i<3;i++){set('p'+i,d.phases[i].power.toFixed(0)+' W');set('i'+i,d.phases[i].current.toFixed(2)+' A');}
   set('tot',d.total.toFixed(0)+' W');
+  set('kwh','import '+d.import_kwh.toFixed(1)+' kWh, export '+d.export_kwh.toFixed(1)+' kWh');
+  var l=d.limiter,e=document.getElementById('lst');
+  e.className='badge '+l.state;e.textContent=l.state.toUpperCase();
+  set('rep',l.answering?l.reported_w.toFixed(0)+' W':'not answering');
+  set('ltxt',l.state=='active'?'export limit '+l.limit_w+' W (offset '+l.offset_w.toFixed(0)+' W)':
+    l.state=='bypass'?'limiter off, real grid power':'no fresh meter data');
+  var a=d.inverter.last_poll_age_ms;
+  set('inv',d.inverter.meter+', inverter '+(a<0?'has not polled yet':a<10000?'polling':'last poll '+fmt(Math.round(a/1000))+' ago'));
 }).catch(function(){badge('lost','UNREACHABLE','device not answering');});}
 poll();setInterval(poll,2000);
 </script></body></html>

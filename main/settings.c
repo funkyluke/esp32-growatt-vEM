@@ -96,8 +96,36 @@ static const setting_def_t SETTINGS[] = {
         "Only used if mDNS finds nothing. Leave empty to disable.",
         0, APPLY_SHELLY, 0, 15, val_ipv4),
     INT("Shelly 3EM", shelly_poll_s, "Poll interval (seconds)",
-        "How often the Shelly is read, 1 to 60. The fresh/stale thresholds scale with it.",
+        "How often the Shelly is read, 1 to 60. Use 1 or 2 for export limiting: the inverter "
+        "only gets data fresher than max(5 s, 2.5 polls), otherwise it is throttled.",
         0, 1, 60),
+
+    SELECT("Meter emulation", mb_mode, "Mode",
+        "Emulate: answer the inverter. Listen only: log the inverter's requests without "
+        "answering (for diagnosis, see /api/modbus).", APPLY_MODBUS, 3,
+        "Off|Emulate meter|Listen only"),
+    SELECT("Meter emulation", mb_meter, "Emulated meter",
+        "Meter model the inverter is set to. The Growatt MIC accepts the Eastron SDM120 "
+        "and the Chint DDSU666.", APPLY_MODBUS, 2, "Eastron SDM120|Chint DDSU666"),
+    INT("Meter emulation", mb_addr, "Modbus address",
+        "Meter address the inverter polls, 1 to 247 (Growatt default: 1).", APPLY_MODBUS, 1, 247),
+    SELECT("Meter emulation", mb_baud, "Baud rate",
+        "Serial speed of the meter port (Growatt default: 9600, 8N1).", APPLY_MODBUS, 4,
+        "2400|4800|9600|19200"),
+    BOOL("Meter emulation", mb_invert, "Invert power sign",
+        "Only if the inverter reacts the wrong way round (exports more when it should limit).",
+        APPLY_MODBUS),
+
+    BOOL("Export limit", lim_enable, "Limit export",
+        "On: the reported power is shifted so the inverter (set to 0 W export) exports at most "
+        "the limit below. Off: the real grid power is reported.", 0),
+    INT("Export limit", lim_export_w, "Maximum export (W)",
+        "Power that may flow into the grid, 0 to 5000 W.", 0, 0, 5000),
+    INT("Export limit", lim_margin_w, "Safety margin (W)",
+        "Regulate this much below the limit to absorb measurement delay, 0 to 500 W.", 0, 0, 500),
+    SELECT("Export limit", lim_failsafe, "When meter data is stale",
+        "Throttle: report a large export so the inverter backs off. Stop answering: the "
+        "inverter's own meter-loss behaviour applies.", 0, 2, "Throttle|Stop answering"),
 
     STR("System", web_pass, "Web password",
         "Protects the settings and firmware update (user name: admin). Empty = no password.",
@@ -152,6 +180,14 @@ static void defaults(settings_t *c) {
     strlcpy(c->shelly_id, SHELLY_DEVICE_ID, sizeof(c->shelly_id));
     if (ip_is_set(SHELLY_FALLBACK_IP)) strlcpy(c->shelly_ip, SHELLY_FALLBACK_IP, sizeof(c->shelly_ip));
     c->shelly_poll_s = 2;
+    c->mb_mode = 1;           /* emulate */
+    c->mb_meter = 0;          /* SDM120 */
+    c->mb_addr = 1;
+    c->mb_baud = 2;           /* 9600 */
+    c->lim_enable = 1;
+    c->lim_export_w = 800;
+    c->lim_margin_w = 30;
+    c->lim_failsafe = 0;      /* throttle */
 }
 
 uint32_t settings_apply_flags(uint64_t changed) {

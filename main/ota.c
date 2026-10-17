@@ -60,7 +60,7 @@ esp_err_t ota_upload_handler(httpd_req_t *req) {
         if (n <= 0) { free(buf); esp_ota_abort(h); ESP_LOGE(TAG, "upload aborted"); return ESP_FAIL; }
         if ((e = esp_ota_write(h, buf, n)) != ESP_OK) {
             free(buf); esp_ota_abort(h);
-            return fail(req, "400 Bad Request", esp_err_to_name(e));
+            return fail(req, "400 Bad Request", e == ESP_ERR_OTA_VALIDATE_FAILED ? "Not a valid firmware image" : esp_err_to_name(e));
         }
         left -= n;
     }
