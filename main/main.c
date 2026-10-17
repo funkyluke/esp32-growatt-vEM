@@ -7,6 +7,9 @@
 #include "modbus.h"
 #include "history.h"
 #include "mqtt_ha.h"
+#include "clock.h"
+#include "telegram.h"
+#include "monitor.h"
 
 static const char *TAG = "app";
 
@@ -21,4 +24,7 @@ void app_main(void) {
     modbus_init();
     history_init();
     mqtt_ha_init();
+    clock_init();
+    telegram_init();
+    monitor_init();
 }

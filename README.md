@@ -123,6 +123,7 @@ The web server exposes:
 - `GET /api/status` — JSON `{"ip": "...", "wifi": "..."}`
 - `GET /api/info` — firmware version, reset reason, heap, RSSI
 - `GET /api/modbus` — Modbus counters and the last 24 frames (hex, decoded)
+- `GET /api/telegram` — status of the last send, `POST /api/telegram/test`
 - `GET /api/history?res=s|m&since=<seq>` — power history as columns
   (`grid`, `l1`-`l3`, `rep` = reported to the inverter, `lim`, `fl` flags;
   1 min data adds `gmin`/`gmax`). `next` is the `since` for the next call.
@@ -143,6 +144,35 @@ With *Home Assistant discovery* on, a device "Growatt vEM" appears with all
 sensors (the energy sensors work in the Energy dashboard), a **number**
 entity for the export limit and a **switch** for the limiter. Discovery is
 re-sent when HA restarts; turning discovery off removes the entities.
+
+## Telegram
+
+1. Create a bot with [@BotFather](https://t.me/BotFather) and copy the token.
+2. Send your bot any message (bots cannot start a chat), then find your chat
+   ID, e.g. with @userinfobot.
+3. *Settings -> Telegram*: enable, token, chat ID, save, *Send test message*.
+   The status line shows the result of the last send (e.g. `HTTP 401` for a
+   wrong token, `HTTP 400: chat not found` for a wrong chat ID).
+
+Alerts (each with a recovery message; the delay is a setting, default 5 min):
+
+| Alert | Condition | Default |
+|-------|-----------|---------|
+| Shelly data lost | no fresh meter data for longer than the delay | on |
+| Export above the limit | export > limit + 50 W for 60 s while limiting | on |
+| Unexpected restart | after a crash, watchdog reset or brownout | on |
+| WiFi outage | sent after reconnecting, if longer than the delay | on |
+| Inverter not polling | only inside a daytime window (default 10-16 h), since the inverter switches off without PV | **off** |
+
+The **daily report** (default 21:30 local time) covers the 24 h since the
+previous one: grid import/export in kWh (difference of the Shelly energy
+counters; the baseline is kept in NVS so restarts do not break it), peak
+import/export, time at the export limit, time without fresh meter data, when
+the inverter was active, number of alerts, uptime and WiFi signal. Peaks and
+times start over after a restart (the report says so).
+
+Time comes from SNTP (*System -> NTP server*), the time zone is a POSIX TZ
+string (*System -> Time zone*, default Central Europe).
 
 ## Live graph
 
@@ -276,6 +306,9 @@ python tools\serial_capture.py COM10 60 serial.log
     ├── vem.c/.h            # combines Shelly data, limiter, meter values
     ├── history.c/.h        # 1 s / 1 min power history for the graph
     ├── mqtt_ha.c/.h        # MQTT state/commands, Home Assistant discovery
+    ├── telegram.c/.h       # Telegram send queue (HTTPS, retries)
+    ├── monitor.c/.h        # alerts + daily report
+    ├── clock.c/.h          # SNTP + time zone
     ├── www/                # embedded HTML pages
     ├── wifi_credentials.h          # (gitignored) your LAN credentials
     ├── wifi_credentials.h.example  # committed template

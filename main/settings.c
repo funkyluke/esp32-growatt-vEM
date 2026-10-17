@@ -70,6 +70,29 @@ static const char *val_topic(const char *s) {
     return NULL;
 }
 
+static const char *val_tg_token(const char *s) {
+    if (!*s) return NULL;
+    const char *colon = strchr(s, ':');
+    if (!colon || colon == s) return "Looks like 123456789:ABC..., as sent by @BotFather";
+    for (const char *p = s; p < colon; p++) if (!isdigit((unsigned char)*p)) return "Looks like 123456789:ABC..., as sent by @BotFather";
+    return NULL;
+}
+
+static const char *val_tg_chat(const char *s) {
+    if (!*s || *s == '@') return NULL;
+    const char *p = (*s == '-') ? s + 1 : s;
+    if (!*p) return "A numeric chat ID (e.g. 123456789 or -100...) or @channelname";
+    for (; *p; p++) if (!isdigit((unsigned char)*p)) return "A numeric chat ID (e.g. 123456789 or -100...) or @channelname";
+    return NULL;
+}
+
+static const char *val_hhmm(const char *s) {
+    int h, m;
+    char tail;
+    if (sscanf(s, "%d:%d%c", &h, &m, &tail) != 2 || h < 0 || h > 23 || m < 0 || m > 59) return "Use HH:MM, e.g. 21:30";
+    return NULL;
+}
+
 static const char *val_ipv4(const char *s) {
     if (!*s) return NULL;
     int dots = 0;
@@ -158,9 +181,36 @@ static const setting_def_t SETTINGS[] = {
         "How often the state is published, 1 to 300. Changes from HA are confirmed at once.",
         APPLY_MQTT, 1, 300),
 
+    BOOL("Telegram", tg_enable, "Enable Telegram",
+        "Send alerts and a daily report through a Telegram bot.", APPLY_TELEGRAM),
+    STR("Telegram", tg_token, "Bot token",
+        "From @BotFather, e.g. 123456789:ABC-DEF... Leave empty to keep the current token.",
+        FLD_SECRET, APPLY_TELEGRAM, 0, 64, val_tg_token),
+    STR("Telegram", tg_chat, "Chat ID",
+        "Your user or group chat ID (message @userinfobot to find yours). Send the bot a message first.",
+        0, APPLY_TELEGRAM, 0, 32, val_tg_chat),
+    INT("Telegram", tg_alert_min, "Alert delay (minutes)",
+        "How long a problem must last before an alert is sent, 1 to 120.", APPLY_TELEGRAM, 1, 120),
+    BOOL("Telegram", tg_al_meter, "Alert: Shelly data lost", "No fresh meter data for longer than the delay.", APPLY_TELEGRAM),
+    BOOL("Telegram", tg_al_export, "Alert: export above the limit",
+        "Export more than 50 W above the limit for 60 s while limiting.", APPLY_TELEGRAM),
+    BOOL("Telegram", tg_al_reboot, "Alert: unexpected restart", "After a crash, watchdog or brownout.", APPLY_TELEGRAM),
+    BOOL("Telegram", tg_al_wifi, "Alert: WiFi outage", "Sent after reconnecting, if the outage was longer than the delay.", APPLY_TELEGRAM),
+    BOOL("Telegram", tg_al_inv, "Alert: inverter not polling",
+        "Only within the hours below: the inverter switches off without PV, so this is off by default.",
+        APPLY_TELEGRAM),
+    INT("Telegram", tg_inv_from, "Inverter check from (hour)", "Start of the daytime window, 0 to 23.", APPLY_TELEGRAM, 0, 23),
+    INT("Telegram", tg_inv_to, "Inverter check until (hour)", "End of the daytime window, 1 to 24.", APPLY_TELEGRAM, 1, 24),
+    BOOL("Telegram", tg_report, "Daily report", "Import/export, peaks, time at the limit, inverter activity.", APPLY_TELEGRAM),
+    STR("Telegram", tg_report_at, "Report time", "Local time HH:MM. Covers the 24 h since the previous report.",
+        0, APPLY_TELEGRAM, 5, 5, val_hhmm),
+
     STR("System", web_pass, "Web password",
         "Protects the settings and firmware update (user name: admin). Empty = no password.",
         FLD_SECRET, APPLY_SYSTEM, 0, 32, NULL),
+    STR("System", tz, "Time zone (POSIX)",
+        "Default: Central Europe, CET-1CEST,M3.5.0,M10.5.0/3. UTC: UTC0.", 0, APPLY_SYSTEM, 1, 63, NULL),
+    STR("System", ntp, "NTP server", "Used after the next restart.", 0, 0, 1, 63, NULL),
 };
 #define SETTINGS_N (sizeof(SETTINGS) / sizeof(SETTINGS[0]))
 _Static_assert(SETTINGS_N <= 64, "changed-field bitmask is 64 bits wide");
@@ -223,6 +273,15 @@ static void defaults(settings_t *c) {
     strlcpy(c->mqtt_disc, "homeassistant", sizeof(c->mqtt_disc));
     c->mqtt_ha = 1;
     c->mqtt_period_s = 10;
+    c->tg_alert_min = 5;
+    c->tg_al_meter = c->tg_al_export = c->tg_al_reboot = c->tg_al_wifi = 1;
+    c->tg_al_inv = 0;
+    c->tg_inv_from = 10;
+    c->tg_inv_to = 16;
+    c->tg_report = 1;
+    strlcpy(c->tg_report_at, "21:30", sizeof(c->tg_report_at));
+    strlcpy(c->tz, "CET-1CEST,M3.5.0,M10.5.0/3", sizeof(c->tz));
+    strlcpy(c->ntp, "pool.ntp.org", sizeof(c->ntp));
 }
 
 uint32_t settings_apply_flags(uint64_t changed) {

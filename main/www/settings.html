@@ -56,6 +56,9 @@ function load(){fetch('/api/settings').then(function(r){return r.json()}).then(f
   var box=$('cats');box.innerHTML='';F={};
   d.categories.forEach(function(c,ci){var det=E('details',{open:ci==0},[E('summary',{},[c.name])]);
     c.fields.forEach(function(f){F[f.key]=f;det.appendChild(field(f));});
+    if(c.name=='Telegram'){var st=E('small',{id:'tgst'},['']);
+      det.appendChild(E('div',{},[E('button',{className:'sec',onclick:tgtest},['Send test message']),st]));
+      fetch('/api/telegram').then(function(r){return r.json()}).then(function(t){st.textContent='Status: '+t.status;});}
     box.appendChild(det);});
   if(d.wifi_apply)msg(d.wifi_apply);
 }).catch(function(){msg('Device not answering','err');});
@@ -73,6 +76,10 @@ function save(){var o={};for(var k in F){var f=F[k],e=$('f_'+k),c=$('f_'+k+'_clr
     if(d.wifi_pending){msg('Switching WiFi... this page may drop for up to 30 s.');setTimeout(load,35000);}
     else{msg(d.changed?'Saved.':'Nothing changed.');load();}
   }).catch(function(){msg('Lost connection (expected if you changed WiFi).','err');});}
+function tgtest(){fetch('/api/telegram/test',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+  .then(function(r){return r.json()}).then(function(d){
+    msg(d.ok?'Test message queued (save first if you just changed the token).':d.error,d.ok?'ok':'err');
+    setTimeout(function(){fetch('/api/telegram').then(function(r){return r.json()}).then(function(t){$('tgst').textContent='Status: '+t.status;});},6000);});}
 function upload(){var f=$('fw').files[0];if(!f){msg('Choose a .bin file first','err');return;}
   msg('Uploading '+Math.round(f.size/1024)+' KB...');
   fetch('/api/ota',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:f})

@@ -49,6 +49,7 @@ static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *ev
 
 const esp_ip4_addr_t *wifi_ip(void) { return &s_ip; }
 bool wifi_apply_busy(void) { return s_apply_busy; }
+bool wifi_is_connected(void) { return (xEventGroupGetBits(s_evg) & WIFI_CONNECTED_BIT) != 0; }
 
 typedef struct {
     settings_t old;

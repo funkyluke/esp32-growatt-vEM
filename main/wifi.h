@@ -8,6 +8,9 @@ void wifi_init_sta(void);
 /* The device's own IPv4 address (set once DHCP completes). */
 const esp_ip4_addr_t *wifi_ip(void);
 
+/* True while the station has an IP address. */
+bool wifi_is_connected(void);
+
 /* True while a WiFi change is being applied in the background. */
 bool wifi_apply_busy(void);
 

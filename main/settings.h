@@ -38,8 +38,24 @@ typedef struct {
     char    mqtt_disc[33];
     int32_t mqtt_ha;
     int32_t mqtt_period_s;
+    /* Telegram */
+    int32_t tg_enable;
+    char    tg_token[65];
+    char    tg_chat[33];
+    int32_t tg_alert_min;
+    int32_t tg_al_meter;
+    int32_t tg_al_export;
+    int32_t tg_al_reboot;
+    int32_t tg_al_wifi;
+    int32_t tg_al_inv;
+    int32_t tg_inv_from;
+    int32_t tg_inv_to;
+    int32_t tg_report;
+    char    tg_report_at[6];
     /* System */
     char    web_pass[33];
+    char    tz[64];
+    char    ntp[64];
 } settings_t;
 
 /* What has to be re-applied when a field changes (SETTINGS[].apply). */
