@@ -137,14 +137,18 @@ mb_result_t mb_process(const uint8_t *req, size_t len, uint8_t my_addr, mb_meter
         resp[1] = fc;
         resp[2] = (uint8_t)(info->count * 2);
         n = 3;
+        bool any_mapped = false;
         for (uint16_t i = 0; i < info->count; i++) {
             uint16_t r;
-            /* Registers of the other function code read as 0 (real meters
-             * keep configuration there; the inverter may probe it). */
-            if (fc != m->fc || !reg_value(m, info->start + i, v, &r)) { r = 0; info->unmapped = true; }
+            /* Gaps and registers of the other function code read as 0 (real
+             * meters keep configuration there; the inverter may probe it). */
+            if (fc == m->fc && reg_value(m, info->start + i, v, &r)) any_mapped = true;
+            else r = 0;
             resp[n++] = r >> 8;
             resp[n++] = r & 0xFF;
         }
+        /* Block reads spanning gaps are normal; flag only reads of nothing known. */
+        info->unmapped = !any_mapped;
         n = finish(resp, n);
         break;
     }

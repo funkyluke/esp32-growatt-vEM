@@ -18,7 +18,7 @@ typedef struct {
     uint32_t bad_frames;
     uint32_t line_errors;
     uint32_t other_addr;
-    uint32_t unmapped;         /* reads touching registers the meter does not define */
+    uint32_t unmapped;         /* reads hitting no register the meter defines */
     uint32_t exceptions;
     int64_t  last_request_us;  /* 0 = never */
     uint8_t  last_fc;

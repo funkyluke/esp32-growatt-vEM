@@ -47,7 +47,7 @@ static void test_sdm120_power(void) {
 }
 
 static void test_sdm120_block(void) {
-    /* 0x0000..0x000D: voltage at 0, current at 6, power at 12, gaps unmapped */
+    /* 0x0000..0x000D: voltage at 0, current at 6, power at 12, gaps read 0 */
     const uint8_t req[] = { 0x01, 0x04, 0x00, 0x00, 0x00, 0x0E, 0x71, 0xCE };
     uint8_t resp[256]; size_t n; mb_req_info_t info;
     CHECK(mb_process(req, sizeof(req), 1, MB_METER_SDM120, &V, resp, &n, &info) == MB_R_REPLY);
@@ -55,8 +55,17 @@ static void test_sdm120_block(void) {
     CHECK(resp[3] == 0x43 && resp[4] == 0x66 && resp[5] == 0 && resp[6] == 0);   /* 230.0f */
     CHECK(resp[3 + 2 * 2] == 0 && resp[3 + 2 * 2 + 1] == 0);                      /* reg 2: gap */
     CHECK(resp[3 + 12 * 2] == 0xC4 && resp[3 + 12 * 2 + 1] == 0x40);              /* power */
-    CHECK(info.unmapped);
+    CHECK(!info.unmapped);
     CHECK(mb_crc16(resp, n - 2) == (uint16_t)(resp[n - 2] | resp[n - 1] << 8));
+}
+
+static void test_sdm120_gap_only(void) {
+    /* 0x0002..0x0005 lie between voltage and current: nothing defined */
+    uint8_t req[8] = { 0x01, 0x04, 0x00, 0x02, 0x00, 0x04 };
+    add_crc(req, 6);
+    uint8_t resp[256]; size_t n; mb_req_info_t info;
+    CHECK(mb_process(req, 8, 1, MB_METER_SDM120, &V, resp, &n, &info) == MB_R_REPLY);
+    CHECK(n == 3 + 8 + 2 && resp[3] == 0 && resp[10] == 0 && info.unmapped);
 }
 
 static void test_ddsu666_kw(void) {
@@ -155,6 +164,7 @@ int main(void) {
     test_crc();
     test_sdm120_power();
     test_sdm120_block();
+    test_sdm120_gap_only();
     test_ddsu666_kw();
     test_wrong_fc_reads_zero();
     test_addressing_and_errors();

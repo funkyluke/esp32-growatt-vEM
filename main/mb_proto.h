@@ -40,7 +40,7 @@ typedef struct {
     uint16_t start;
     uint16_t count;
     uint8_t  exception;  /* 0 = none, else the Modbus exception code sent */
-    bool     unmapped;   /* the read touched registers this meter does not define */
+    bool     unmapped;   /* the read hit no register this meter defines */
 } mb_req_info_t;
 
 uint16_t mb_crc16(const uint8_t *buf, size_t len);
