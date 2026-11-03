@@ -211,12 +211,14 @@ Alerts (each with a recovery message; the delay is a setting, default 5 min):
 | WiFi outage | sent after reconnecting, if longer than the delay | on |
 | Inverter not polling | only inside a daytime window (default 10-16 h): the inverter switches off without PV | **off** |
 
-The **daily report** (default 21:30 local time) covers the 24 h since the
-previous one: grid import/export in kWh (difference of the Shelly energy
-counters, baseline kept in NVS), peak import/export, time at the export
-limit, time without fresh meter data, when the inverter was active, number
-of alerts, uptime and WiFi signal. Peaks and times start over after a restart
-(the report says so).
+The **daily report** (default 21:30 local time) covers the current day from
+00:00 up to the report time: grid import/export in kWh (difference of the
+Shelly energy counters, baseline taken at midnight and kept in NVS), peak
+import/export, time at the export limit, time without fresh meter data, when
+the inverter was active, number of alerts, uptime and WiFi signal. If there
+was no fresh meter data at midnight, the energy counts from the first fresh
+reading (the report shows the period). Peaks and times start over after a
+restart (the report says so).
 
 Time comes from SNTP (*System -> NTP server*); the time zone is a POSIX TZ
 string (*System -> Time zone*, default Central Europe).

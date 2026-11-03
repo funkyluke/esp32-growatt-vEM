@@ -35,17 +35,20 @@ static struct {
     bool    inv_alerted;
 } A;
 
-/* Statistics for the daily report, reset after each report. */
+/* Statistics of the current local day for the report, reset at midnight
+ * (RAM only: after a restart they cover the time since the restart). */
 static struct {
     float    peak_imp, peak_exp;
     uint32_t at_limit_s, stale_s, failsafe_s, alerts;
     time_t   inv_first, inv_last;
-    time_t   since;          /* start of the stats window (0 = boot, clock not set yet) */
+    time_t   since;          /* start of the statistics (0 = clock not set yet) */
 } S;
 
-/* Energy baseline (Shelly counters at the last report), persisted. */
+/* Energy baseline: Shelly counters at the start of the day, persisted. */
 static struct {
     uint32_t imp_wh, exp_wh;
+    int32_t  base_day;       /* yyyymmdd the baseline belongs to (0 = none yet) */
+    int64_t  base_t;         /* when it was taken (midnight, or the first fresh data that day) */
     int32_t  last_day;       /* yyyymmdd of the last report */
     bool     loaded, have_base;
 } B;
@@ -83,8 +86,12 @@ static void baseline_load(void) {
     nvs_handle_t h;
     B.loaded = true;
     if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return;
+    /* A baseline without its day (older firmware) is not used. */
     B.have_base = nvs_get_u32(h, "imp_wh", &B.imp_wh) == ESP_OK &&
-                  nvs_get_u32(h, "exp_wh", &B.exp_wh) == ESP_OK;
+                  nvs_get_u32(h, "exp_wh", &B.exp_wh) == ESP_OK &&
+                  nvs_get_i32(h, "base_day", &B.base_day) == ESP_OK && B.base_day != 0 &&
+                  nvs_get_i64(h, "base_t", &B.base_t) == ESP_OK;
+    if (!B.have_base) B.base_day = 0;
     nvs_get_i32(h, "last_day", &B.last_day);
     nvs_close(h);
 }
@@ -94,6 +101,8 @@ static void baseline_save(void) {
     if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
     nvs_set_u32(h, "imp_wh", B.imp_wh);
     nvs_set_u32(h, "exp_wh", B.exp_wh);
+    nvs_set_i32(h, "base_day", B.have_base ? B.base_day : 0);
+    nvs_set_i64(h, "base_t", B.base_t);
     nvs_set_i32(h, "last_day", B.last_day);
     nvs_commit(h);
     nvs_close(h);
@@ -105,7 +114,24 @@ static int32_t yyyymmdd(const struct tm *tm) {
     return (tm->tm_year + 1900) * 10000 + (tm->tm_mon + 1) * 100 + tm->tm_mday;
 }
 
-static void send_report(const vem_t *v, const struct tm *now_tm) {
+static void baseline_take(const vem_t *v, time_t now) {
+    B.imp_wh = (uint32_t)(v->import_kwh * 1000.0f);
+    B.exp_wh = (uint32_t)(v->export_kwh * 1000.0f);
+    B.base_t = now;
+    B.have_base = true;
+    baseline_save();
+}
+
+/* New local day: energy and statistics start over. The baseline is taken
+ * with the next fresh reading. */
+static void start_day(int32_t today, time_t now) {
+    memset(&S, 0, sizeof(S));
+    S.since = now;
+    B.base_day = today;
+    B.have_base = false;
+}
+
+static void send_report(const vem_t *v, const struct tm *now_tm, time_t now) {
     char buf[900], t1[16], t2[16], d1[24], d2[24];
     int n = 0;
     char date[16];
@@ -114,10 +140,12 @@ static void send_report(const vem_t *v, const struct tm *now_tm) {
 
     uint32_t imp = (uint32_t)(v->import_kwh * 1000.0f), exp = (uint32_t)(v->export_kwh * 1000.0f);
     if (B.have_base && imp >= B.imp_wh && exp >= B.exp_wh && v->state != SHELLY_NONE) {
-        n += snprintf(buf + n, sizeof(buf) - n, "Grid import: %.2f kWh\nGrid export: %.2f kWh\n",
-                      (imp - B.imp_wh) / 1000.0, (exp - B.exp_wh) / 1000.0);
+        fmt_hm(t1, sizeof(t1), (time_t)B.base_t);
+        fmt_hm(t2, sizeof(t2), now);
+        n += snprintf(buf + n, sizeof(buf) - n, "Energy %s - %s\nGrid import: %.2f kWh\nGrid export: %.2f kWh\n",
+                      t1, t2, (imp - B.imp_wh) / 1000.0, (exp - B.exp_wh) / 1000.0);
     } else {
-        n += snprintf(buf + n, sizeof(buf) - n, "Grid import/export: n/a (no baseline yet)\n");
+        n += snprintf(buf + n, sizeof(buf) - n, "Grid import/export: n/a (no meter data today)\n");
     }
     n += snprintf(buf + n, sizeof(buf) - n, "Peak import: %.0f W, peak export: %.0f W\n",
                   S.peak_imp, S.peak_exp);
@@ -135,19 +163,16 @@ static void send_report(const vem_t *v, const struct tm *now_tm) {
     n += snprintf(buf + n, sizeof(buf) - n, "Alerts: %u\nUptime: %s", (unsigned)S.alerts, d1);
     wifi_ap_record_t ap;
     if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) n += snprintf(buf + n, sizeof(buf) - n, ", WiFi %d dBm", ap.rssi);
-    if (!S.since) n += snprintf(buf + n, sizeof(buf) - n, "\n(peaks and times since the last restart)");
+    struct tm mid = *now_tm;
+    mid.tm_hour = mid.tm_min = mid.tm_sec = 0;
+    mid.tm_isdst = -1;
+    if (S.since > mktime(&mid) + 60) {
+        fmt_hm(t1, sizeof(t1), S.since);
+        n += snprintf(buf + n, sizeof(buf) - n, "\n(peaks and times since the restart at %s)", t1);
+    }
 
     telegram_send(buf);
     ESP_LOGI(TAG, "daily report queued");
-
-    /* new window */
-    if (v->state != SHELLY_NONE && v->import_kwh > 0) {
-        B.imp_wh = imp; B.exp_wh = exp; B.have_base = true;
-    }
-    B.last_day = yyyymmdd(now_tm);
-    baseline_save();
-    memset(&S, 0, sizeof(S));
-    S.since = time(NULL);
 }
 
 static bool parse_hhmm(const char *s, int *h, int *m) {
@@ -166,6 +191,17 @@ static void tick(void) {
     bool tg = telegram_enabled();
     int hold_s = cfg.tg_alert_min * 60;
     char d[24], t[16];
+
+    /* day window: energy and statistics cover the current local day */
+    struct tm now_tm = {0};
+    int32_t today = 0;
+    if (clock_valid()) {
+        localtime_r(&now, &now_tm);
+        today = yyyymmdd(&now_tm);
+        if (B.base_day != today) start_day(today, now);
+        else if (!S.since) S.since = now;
+        if (!B.have_base && v.state == SHELLY_FRESH && v.import_kwh > 0) baseline_take(&v, now);
+    }
 
     /* statistics */
     if (v.state == SHELLY_FRESH) {
@@ -262,25 +298,15 @@ static void tick(void) {
         }
     }
 
-    /* energy baseline on the first good reading */
-    if (!B.have_base && v.state == SHELLY_FRESH && v.import_kwh > 0) {
-        B.imp_wh = (uint32_t)(v.import_kwh * 1000.0f);
-        B.exp_wh = (uint32_t)(v.export_kwh * 1000.0f);
-        B.have_base = true;
-        baseline_save();
-    }
-
-    /* daily report */
+    /* daily report: today from 00:00 up to the report time */
     int rh, rm;
-    if (cfg.tg_report && clock_valid() && parse_hhmm(cfg.tg_report_at, &rh, &rm)) {
-        struct tm tm;
-        localtime_r(&now, &tm);
-        bool due = tm.tm_hour * 60 + tm.tm_min >= rh * 60 + rm;
-        if (due && B.last_day != yyyymmdd(&tm)) {
+    if (today && cfg.tg_report && parse_hhmm(cfg.tg_report_at, &rh, &rm)) {
+        bool due = now_tm.tm_hour * 60 + now_tm.tm_min >= rh * 60 + rm;
+        if (due && B.last_day != today) {
             /* first run ever, after today's report time: start with tomorrow */
-            if (B.last_day == 0) { B.last_day = yyyymmdd(&tm); baseline_save(); S.since = now; }
-            else if (tg) send_report(&v, &tm);
-            else { B.last_day = yyyymmdd(&tm); baseline_save(); }
+            if (B.last_day != 0 && tg) send_report(&v, &now_tm, now);
+            B.last_day = today;
+            baseline_save();
         }
     }
 }

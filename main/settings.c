@@ -215,7 +215,7 @@ static const setting_def_t SETTINGS[] = {
     INT("Telegram", tg_inv_from, "Inverter check from (hour)", "Start of the daytime window, 0 to 23.", APPLY_TELEGRAM, 0, 23),
     INT("Telegram", tg_inv_to, "Inverter check until (hour)", "End of the daytime window, 1 to 24.", APPLY_TELEGRAM, 1, 24),
     BOOL("Telegram", tg_report, "Daily report", "Import/export, peaks, time at the limit, inverter activity.", APPLY_TELEGRAM),
-    STR("Telegram", tg_report_at, "Report time", "Local time HH:MM. Covers the 24 h since the previous report.",
+    STR("Telegram", tg_report_at, "Report time", "Local time HH:MM. Covers the day from 00:00 up to this time.",
         0, APPLY_TELEGRAM, 5, 5, val_hhmm),
 
     STR("System", web_pass, "Web password",
