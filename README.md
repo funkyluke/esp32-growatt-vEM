@@ -41,13 +41,6 @@ inverter export limit = 0 W                    (keeps reported >= 0)
 - *Limit export: off* reports the real grid power (the inverter's own limit
   then applies).
 
-> **Not verified on a real MIC yet:** which registers it reads and the sign
-> convention it expects. For the first connection use *Mode: Listen only*
-> and watch `/diag` (every frame is logged, nothing is transmitted). Then
-> switch to *Emulate meter* and check that the export settles below the
-> limit. *Invert power sign* exists in case the inverter reacts the wrong way
-> round; *Chint DDSU666* in case the SDM120 is not accepted.
-
 ## Setup
 
 ### Hardware
