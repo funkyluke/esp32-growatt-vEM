@@ -30,6 +30,7 @@ typedef struct {
     bool  enabled;
     int   export_limit_w;
     int   margin_w;
+    int   max_report_export_w;   /* cap on the export reported while limiting, 0 = off */
     limiter_failsafe_t failsafe;
 } limiter_in_t;
 

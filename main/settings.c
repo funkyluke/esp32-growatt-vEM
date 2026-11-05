@@ -175,6 +175,10 @@ static const setting_def_t SETTINGS[] = {
         "Power that may flow into the grid, 0 to 5000 W.", APPLY_LIMIT, 0, 5000),
     INT("Export limit", lim_margin_w, "Safety margin (W)",
         "Regulate this much below the limit to absorb measurement delay, 0 to 500 W.", APPLY_LIMIT, 0, 500),
+    INT("Export limit", lim_rep_exp_w, "Cap reported export (W)",
+        "Never report more export than this while limiting. The Growatt stops feeding in after a few "
+        "seconds of larger export (backflow timeout) and needs minutes to ramp up again; with a small "
+        "value it backs off gently. 0 = off, up to 1000 W.", APPLY_LIMIT, 0, 1000),
     SELECT("Export limit", lim_failsafe, "When meter data is stale",
         "Throttle: report a large export so the inverter backs off. Stop answering: the "
         "inverter's own meter-loss behaviour applies.", APPLY_LIMIT, 2, "Throttle|Stop answering"),
@@ -287,6 +291,7 @@ static void defaults(settings_t *c) {
     c->lim_enable = 1;
     c->lim_export_w = 800;
     c->lim_margin_w = 30;
+    c->lim_rep_exp_w = 50;
     c->lim_failsafe = 0;      /* throttle */
     strlcpy(c->mqtt_base, "growatt_vem", sizeof(c->mqtt_base));
     strlcpy(c->mqtt_disc, "homeassistant", sizeof(c->mqtt_disc));

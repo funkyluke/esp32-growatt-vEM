@@ -151,6 +151,17 @@ static void test_limiter(void) {
     in.margin_w = 30;
     in.grid_w = -900;
 
+    in.max_report_export_w = 50;            /* cap: at most 50 W export reported */
+    limiter_compute(&in, &o);
+    CHECK(fabsf(o.reported_w + 50) < 0.01f);
+    in.grid_w = -790;                       /* below the cap: unchanged */
+    limiter_compute(&in, &o);
+    CHECK(fabsf(o.reported_w + 20) < 0.01f);
+    in.grid_w = 300;                        /* import is never touched */
+    limiter_compute(&in, &o);
+    CHECK(fabsf(o.reported_w - 1070) < 0.01f);
+    in.grid_w = -900;                       /* cap stays set: bypass and fail-safe ignore it */
+
     in.enabled = false;
     limiter_compute(&in, &o);
     CHECK(o.state == LIM_STATE_BYPASS && o.reported_w == -900 && o.answer);

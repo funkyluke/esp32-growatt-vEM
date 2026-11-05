@@ -31,6 +31,13 @@ With a margin larger than the limit the offset is negative: limit 0 W and
 margin 50 W keep the grid at about +50 W import (zero export with headroom
 for load changes).
 
+*Cap reported export* (default 50 W, 0 = off): while limiting, the inverter
+is never told about more export than this. A Growatt MIC that sees a larger
+export for a few seconds (e.g. after a load switches off) stops feeding in
+("backflow timeout") and needs minutes to ramp up again; with the capped
+value it backs off gently. A short real export after a load drop can last a
+little longer in exchange.
+
 - Set the inverter's own export limitation to **on, 0 W / 0 %**, with the
   meter type matching *Meter emulation -> Emulated meter*. All tuning then
   happens on the ESP (*Export limit* settings or the Home Assistant number

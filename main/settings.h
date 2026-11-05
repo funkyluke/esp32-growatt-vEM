@@ -30,6 +30,7 @@ typedef struct {
     int32_t lim_enable;
     int32_t lim_export_w;
     int32_t lim_margin_w;
+    int32_t lim_rep_exp_w;    /* cap on the reported export, 0 = off */
     int32_t lim_failsafe;     /* limiter_failsafe_t */
     /* MQTT / Home Assistant */
     int32_t mqtt_enable;

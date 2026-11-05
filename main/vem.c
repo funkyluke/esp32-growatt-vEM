@@ -27,6 +27,7 @@ void vem_compute(vem_t *o) {
         .enabled        = cfg.lim_enable != 0,
         .export_limit_w = cfg.lim_export_w,
         .margin_w       = cfg.lim_margin_w,
+        .max_report_export_w = cfg.lim_rep_exp_w,
         .failsafe       = (limiter_failsafe_t)cfg.lim_failsafe,
     };
     limiter_compute(&in, &o->lim);
