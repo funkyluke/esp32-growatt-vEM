@@ -27,15 +27,20 @@ inverter export limit = 0 W                    (keeps reported >= 0)
 => grid >= -(limit - margin)                   (at most `limit` W exported)
 ```
 
+With a margin larger than the limit the offset is negative: limit 0 W and
+margin 50 W keep the grid at about +50 W import (zero export with headroom
+for load changes).
+
 - Set the inverter's own export limitation to **on, 0 W / 0 %**, with the
   meter type matching *Meter emulation -> Emulated meter*. All tuning then
   happens on the ESP (*Export limit* settings or the Home Assistant number
   entity), live, no reboot.
 - **Fail-safe:** the inverter only gets real values while the Shelly data is
-  *fresh* (younger than max(5 s, 2.5 polls)). Otherwise it is told about a
-  large export (5 kW) so it throttles, or, with *Stop answering*, gets no
-  reply and its own meter-loss behaviour applies. Use a Shelly poll interval
-  of 1-2 s.
+  *fresh* (younger than *Shelly 3EM -> Data timeout*, default 10 s).
+  Otherwise it is told about a large export (5 kW) so it throttles, or, with
+  *Stop answering*, gets no reply and its own meter-loss behaviour applies.
+  Use a Shelly poll interval of 1 s: the inverter acts on every value it
+  reads, so a value held for several seconds makes it overcorrect.
 - The three phases are summed into one virtual single-phase meter, so it does
   not matter which phase the MIC feeds.
 - *Limit export: off* reports the real grid power (the inverter's own limit
@@ -135,8 +140,8 @@ the table.
 
 | `state` | Age of the last good Shelly poll | Dashboard | Inverter gets |
 |---------|----------------------------------|-----------|---------------|
-| `fresh` | < max(5 s, 2.5 polls)  | green **FRESH** | real values |
-| `aging` | < max(15 s, 7.5 polls) | amber **AGING** | fail-safe |
+| `fresh` | < data timeout (default 10 s) | green **FRESH** | real values |
+| `aging` | < 3 x data timeout            | amber **AGING** | fail-safe |
 | `stale` | older | red **STALE**, dimmed | fail-safe |
 | `none`  | no poll succeeded yet | grey **NO DATA** | fail-safe |
 

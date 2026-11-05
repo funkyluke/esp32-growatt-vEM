@@ -31,8 +31,8 @@ void shelly_reresolve(void);
  * (0 = none) and copies the URL into `url` if non-NULL. */
 int shelly_diag(char *url, size_t n);
 
-/* Freshness of a snapshot, from the age of its last good poll. The
- * thresholds scale with the poll interval (fresh: max(5 s, 2.5 polls),
- * aging: max(15 s, 7.5 polls)). `age_ms` gets -1 if there was no poll yet. */
+/* Freshness of a snapshot, from the age of its last good poll (fresh: below
+ * the data timeout setting, aging: below 3 times that). `age_ms` gets -1 if
+ * there was no poll yet. */
 shelly_state_t shelly_state(const shelly_snapshot_t *s, int64_t *age_ms);
 const char *shelly_state_name(shelly_state_t st);

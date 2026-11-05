@@ -244,9 +244,7 @@ void shelly_get_snapshot(shelly_snapshot_t *out) {
 shelly_state_t shelly_state(const shelly_snapshot_t *s, int64_t *age_ms) {
     settings_t cfg;
     settings_copy(&cfg);
-    int64_t fresh_ms = cfg.shelly_poll_s * 2500LL, aging_ms = cfg.shelly_poll_s * 7500LL;
-    if (fresh_ms < 5000) fresh_ms = 5000;
-    if (aging_ms < 15000) aging_ms = 15000;
+    int64_t fresh_ms = cfg.shelly_stale_s * 1000LL, aging_ms = 3 * fresh_ms;
     int64_t age = (s->last_ok_us > 0) ? (esp_timer_get_time() - s->last_ok_us) / 1000 : -1;
     if (age_ms) *age_ms = age;
     return (age < 0) ? SHELLY_NONE : (age < fresh_ms) ? SHELLY_FRESH

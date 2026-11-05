@@ -19,6 +19,7 @@ typedef struct {
     char    shelly_id[24];
     char    shelly_ip[16];
     int32_t shelly_poll_s;
+    int32_t shelly_stale_s;   /* data older than this is not passed to the inverter */
     /* Meter emulation (Modbus) */
     int32_t mb_mode;          /* modbus_mode_t */
     int32_t mb_meter;         /* mb_meter_t */

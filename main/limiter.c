@@ -15,8 +15,8 @@ void limiter_compute(const limiter_in_t *in, limiter_out_t *out) {
         out->reported_w = in->grid_w;
         return;
     }
+    /* Negative when the margin exceeds the limit: regulate to a small import. */
     int target = in->export_limit_w - in->margin_w;
-    if (target < 0) target = 0;
     out->state = LIM_STATE_ACTIVE;
     out->offset_w = (float)target;
     out->reported_w = in->grid_w + (float)target;

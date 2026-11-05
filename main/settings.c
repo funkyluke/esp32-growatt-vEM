@@ -144,9 +144,13 @@ static const setting_def_t SETTINGS[] = {
         "Only used if mDNS finds nothing. Leave empty to disable.",
         0, APPLY_SHELLY, 0, 15, val_ipv4),
     INT("Shelly 3EM", shelly_poll_s, "Poll interval (seconds)",
-        "How often the Shelly is read, 1 to 60. Use 1 or 2 for export limiting: the inverter "
-        "only gets data fresher than max(5 s, 2.5 polls), otherwise it is throttled.",
+        "How often the Shelly is read, 1 to 60. Use 1 for export limiting: the inverter "
+        "regulates on each value, so older values make it overshoot.",
         0, 1, 60),
+    INT("Shelly 3EM", shelly_stale_s, "Data timeout (seconds)",
+        "Without a good reading for this long the inverter is throttled (see Export limit), "
+        "2 to 120. Keep it several times the poll interval.",
+        0, 2, 120),
 
     SELECT("Meter emulation", mb_mode, "Mode",
         "Emulate: answer the inverter. Listen only: log the inverter's requests without "
@@ -275,6 +279,7 @@ static void defaults(settings_t *c) {
     strlcpy(c->shelly_id, SHELLY_DEVICE_ID, sizeof(c->shelly_id));
     if (ip_is_set(SHELLY_FALLBACK_IP)) strlcpy(c->shelly_ip, SHELLY_FALLBACK_IP, sizeof(c->shelly_ip));
     c->shelly_poll_s = 2;
+    c->shelly_stale_s = 10;
     c->mb_mode = 1;           /* emulate */
     c->mb_meter = 0;          /* SDM120 */
     c->mb_addr = 1;

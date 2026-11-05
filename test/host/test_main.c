@@ -139,10 +139,17 @@ static void test_limiter(void) {
     limiter_compute(&in, &o);
     CHECK(o.reported_w < 0);
 
-    in.margin_w = 900;                      /* margin above the limit clamps to 0 */
+    in.export_limit_w = 0;                  /* zero export: the margin still applies */
+    in.margin_w = 50;
+    in.grid_w = 50;
     limiter_compute(&in, &o);
-    CHECK(o.offset_w == 0);
+    CHECK(o.offset_w == -50 && fabsf(o.reported_w) < 0.01f);   /* +50 W import holds */
+    in.grid_w = 0;
+    limiter_compute(&in, &o);
+    CHECK(o.reported_w < 0);                /* grid at 0 already counts as export */
+    in.export_limit_w = 800;
     in.margin_w = 30;
+    in.grid_w = -900;
 
     in.enabled = false;
     limiter_compute(&in, &o);
